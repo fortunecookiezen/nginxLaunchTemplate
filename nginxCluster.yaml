@@ -89,7 +89,6 @@ Resources:
       ResourceSignal:
        Count: "1"
        Timeout: PT15M        
-    DependsOn: "LaunchTemplate"
     Properties:
       MinSize: "2"
       MaxSize: "5"
