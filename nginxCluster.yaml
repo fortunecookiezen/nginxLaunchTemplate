@@ -1,5 +1,5 @@
 ---
-Description: "Nginx proxy ASG and Launch Template"
+Description: "Nginx proxy Classic LoadBalancer, ASG and Launch Template"
 AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
   keyname:
@@ -50,8 +50,8 @@ Resources:
           services:
             sysvinit:
               cfn-hup:
-                enabled: "true"
-                ensureRunning: "true"
+                enabled: true
+                ensureRunning: true
                 files:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
@@ -61,8 +61,8 @@ Resources:
           services: 
             sysvinit: 
               nginx: 
-                enabled: "true"
-                ensureRunning: "true"
+                enabled: true
+                ensureRunning: true
                 files: 
                   - "/etc/nginx/nginx.conf"
         verify_instance_health:
@@ -92,6 +92,8 @@ Resources:
               yum -y update
               amazon-linux-extras install nginx1.12 -y
               /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
+              /bin/systemctl enable nginx.service #manually enable this thing
+              /bin/systemctl restart nginx.service #manually kick this thing
   AutoScalingGroup:
     Type: "AWS::AutoScaling::AutoScalingGroup"
     CreationPolicy:
@@ -121,7 +123,7 @@ Resources:
   ElasticLoadBalancer:
     Type: AWS::ElasticLoadBalancing::LoadBalancer
     Properties:
-      AvailabilityZones: !GetAZs ''
+      Subnets: !Ref subnetid
       CrossZone: true
       Listeners:
       - LoadBalancerPort: '80'
