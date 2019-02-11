@@ -25,6 +25,7 @@ Resources:
           nginx:
             - "configure_cfn"
             - "config_nginx"
+            - "verify_instance_health"
         configure_cfn:
           files:
             /etc/cfn/hooks.d/cfn-auto-reloader.conf:
@@ -64,6 +65,14 @@ Resources:
                 ensureRunning: "true"
                 files: 
                   - "/etc/nginx/nginx.conf"
+        verify_instance_health:
+          commands:
+            ELBHealthCheck:
+              command: !Sub
+                'until [ "$state" == "\"InService\"" ]; do state=$(aws --region ${AWS::Region} elb describe-instance-health
+                 --load-balancer-name ${ElasticLoadBalancer}
+                 --instances $(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+                 --query InstanceStates[0].State); sleep 10; done'
     Properties:
       LaunchTemplateName: "nginx"
       LaunchTemplateData:
@@ -89,6 +98,12 @@ Resources:
       ResourceSignal:
        Count: "1"
        Timeout: PT15M        
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MaxBatchSize: 1
+        MinInstancesInService: 1
+        PauseTime: PT15M
+        WaitOnResourceSignals: true
     Properties:
       MinSize: "2"
       MaxSize: "5"
@@ -102,3 +117,19 @@ Resources:
       VPCZoneIdentifier: !Ref subnetid
         #- ""
         #- ""
+      LoadBalancerNames: [!Ref 'ElasticLoadBalancer']      
+  ElasticLoadBalancer:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      AvailabilityZones: !GetAZs ''
+      CrossZone: true
+      Listeners:
+      - LoadBalancerPort: '80'
+        InstancePort: '80'
+        Protocol: HTTP
+      HealthCheck:
+        Target: HTTP:80/
+        HealthyThreshold: '3'
+        UnhealthyThreshold: '5'
+        Interval: '30'
+        Timeout: '5'
