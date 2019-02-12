@@ -1,13 +1,18 @@
 ---
-Description: "Nginx proxy Classic LoadBalancer, ASG and Launch Template"
+Description: "Nginx proxy ASG and Launch Template"
 AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
+  VPC:
+    Type: AWS::EC2::VPC::Id
   keyname:
     Type: AWS::EC2::KeyPair::KeyName
-  securitygroup:
+  ec2securitygroup:
     Type: AWS::EC2::SecurityGroup::Id
     Description: "EC2 Security group for instance"
-  subnetid:
+  nlbsecuritygroup:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: "Security group for NetworkLoadBalancer"  
+  subnets:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "need subnet id for EC2 instance"
 Mappings:
@@ -82,7 +87,7 @@ Resources:
         InstanceType: "t3.small"
         KeyName: !Ref keyname
         SecurityGroupIds:
-          - !Ref securitygroup
+          - !Ref ec2securitygroup
         UserData:
           "Fn::Base64":
             !Sub |
@@ -116,23 +121,38 @@ Resources:
         Version:
           Fn::GetAtt:
             [ "LaunchTemplate", "LatestVersionNumber" ]
-      VPCZoneIdentifier: !Ref subnetid
+      VPCZoneIdentifier: !Ref subnets
         #- ""
         #- ""
-      LoadBalancerNames: [!Ref 'ElasticLoadBalancer']      
+#      LoadBalancerNames: [!Ref 'ElasticLoadBalancer']
+      TargetGroupARNs: "listofstrings"       
   ElasticLoadBalancer:
-    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Subnets: !Ref subnetid
-      CrossZone: true
-      Listeners:
-      - LoadBalancerPort: '80'
-        InstancePort: '80'
-        Protocol: HTTP
-      HealthCheck:
-        Target: HTTP:80/
-        HealthyThreshold: '3'
-        UnhealthyThreshold: '5'
-        Interval: '30'
-        Timeout: '5'
-      #Need to Add S3 Logging to this.
+      Subnets: !Ref subnets
+      Scheme: "internet-facing"
+      SecurityGroups: !Ref nlbsecuritygroup
+#      SubnetMappings:
+#        - AllocationId: !Ref firsteipallocationid
+#          SubnetId: !Ref lbsubneta
+#        - AllocationId: !Ref secondeipallocationid
+#          SubnetId: !Ref lbsubnetb
+      Tags:
+        - Key: "Name"
+          Value: ""
+      Type: "network"
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ElasticLoadBalancer
+      Port: 80
+      Protocol: http
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref DefaultTargetGroup
+  DefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Port: 80
+      Protocol: HTTP
