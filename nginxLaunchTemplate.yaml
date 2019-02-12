@@ -1,5 +1,5 @@
 ---
-Description: "Nginx proxy ASG and Launch Template"
+Description: "Nginx proxy Launch Template"
 AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
   keyname:
@@ -19,6 +19,25 @@ Mappings:
 Resources:
   LaunchTemplate: #need to turn this into a launchconfig, launchtemplates cannot be signaled
     Type: "AWS::EC2::LaunchTemplate"
+    Properties:
+      LaunchTemplateName: "nginx"
+      LaunchTemplateData:
+        IamInstanceProfile: 
+            Name: "Ec2SsmRole"
+        ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMALINUX2]
+        InstanceType: "t3.small"
+        KeyName: !Ref keyname
+        SecurityGroupIds:
+          - !Ref securitygroup
+        UserData:
+          "Fn::Base64":
+            !Sub |
+              #!/usr/bin/env bash
+              yum update -y aws-cfn-bootstrap # good practice - always do this.
+              /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
+              yum -y update
+              amazon-linux-extras install nginx1.12 -y
+              /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
     Metadata:
       AWS::CloudFormation::Init:
         configSets:
@@ -64,41 +83,3 @@ Resources:
                 ensureRunning: "true"
                 files: 
                   - "/etc/nginx/nginx.conf"
-    Properties:
-      LaunchTemplateName: "nginx"
-      LaunchTemplateData:
-        IamInstanceProfile: 
-            Name: "Ec2SsmRole"
-        ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMALINUX2]
-        InstanceType: "t3.small"
-        KeyName: !Ref keyname
-        SecurityGroupIds:
-          - !Ref securitygroup
-        UserData:
-          "Fn::Base64":
-            !Sub |
-              #!/usr/bin/env bash
-              yum update -y aws-cfn-bootstrap # good practice - always do this.
-              /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
-              yum -y update
-              amazon-linux-extras install nginx1.12 -y
-              /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
-  AutoScalingGroup:
-    Type: "AWS::AutoScaling::AutoScalingGroup"
-    CreationPolicy:
-      ResourceSignal:
-       Count: "1"
-       Timeout: PT15M        
-    Properties:
-      MinSize: "2"
-      MaxSize: "5"
-      DesiredCapacity: "2"
-      LaunchTemplate:
-        LaunchTemplateId:
-          Ref: "LaunchTemplate"
-        Version:
-          Fn::GetAtt:
-            [ "LaunchTemplate", "LatestVersionNumber" ]
-      VPCZoneIdentifier: !Ref subnetid
-        #- ""
-        #- ""
