@@ -15,6 +15,9 @@ Parameters:
     Description: Select Environment Size (S,M,L)
   keyname:
     Type: AWS::EC2::KeyPair::KeyName
+  ElasticIP:
+    Type: String
+    Default: "eipalloc-04431d614752cb5fd"
 Mappings:
   RegionMap:
     us-east-1:
@@ -101,6 +104,11 @@ Resources:
                 ensureRunning: "true"
                 files: 
                   - "/etc/nginx/nginx.conf"
+  EipAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !Ref ElasticIP
+      InstanceId: !Ref EC2
 Outputs:
   nginx:
     Description: URL for nginx
