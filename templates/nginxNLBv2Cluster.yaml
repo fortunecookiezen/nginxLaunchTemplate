@@ -15,6 +15,9 @@ Parameters:
   subnets:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "need subnet id for EC2 instance"
+  targetgrouparns:
+    Type: CommaDelimitedList
+    Description: "comma delimited list of targetgroup arns"
 Mappings:
   RegionMap:
     us-east-1:
@@ -125,7 +128,7 @@ Resources:
         #- ""
         #- ""
 #      LoadBalancerNames: [!Ref 'ElasticLoadBalancer']
-      TargetGroupARNs: "listofstrings"       
+      TargetGroupARNs: !Ref targetgrouparns       
   ElasticLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
