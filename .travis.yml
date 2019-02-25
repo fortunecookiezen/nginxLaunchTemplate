@@ -5,3 +5,4 @@ install:
   - pip install cfn-lint
 script:
   - cfn-lint -i W -t templates/*
+  - cfn-lint -i W -t misc/*.yaml

@@ -12,6 +12,7 @@ phases:
     commands:
       - echo Build started on `date`
       - cfn-lint --template templates/* -i W
+      - cfn-lint --template misc/*.yaml -i W
   post_build:
     commands:
       - echo Build completed on `date`
