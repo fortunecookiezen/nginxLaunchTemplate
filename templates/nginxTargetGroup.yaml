@@ -14,7 +14,7 @@ Parameters:
     Description: "public subnets for nlb"
   subnetid:
     Type: List<AWS::EC2::Subnet::Id>
-    Description: "private subnets for autoscale group"
+    Description: "need subnet id for EC2 instance"
 Mappings:
   RegionMap:
     us-east-1:
@@ -115,6 +115,7 @@ Resources:
         PauseTime: PT15M
         WaitOnResourceSignals: true
     Properties:
+#      AvailabilityZones: !GetAZs ""
       MinSize: "2"
       MaxSize: "5"
       Cooldown: "120"

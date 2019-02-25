@@ -7,9 +7,7 @@ Parameters:
   securitygroup:
     Type: AWS::EC2::SecurityGroup::Id
     Description: "EC2 Security group for instance"
-  subnetid:
-    Type: List<AWS::EC2::Subnet::Id>
-    Description: "need subnet id for EC2 instance"
+
 Mappings:
   RegionMap:
     us-east-1:
