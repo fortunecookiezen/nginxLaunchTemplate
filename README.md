@@ -1,5 +1,7 @@
 # nginxLaunchTemplate
 
+[![Build Status](https://travis-ci.org/fortunecookiezen/nginxLaunchTemplate.svg?branch=master)](https://travis-ci.org/fortunecookiezen/nginxLaunchTemplate)
+
 CloudFormation templates for a herd of nginx cattle
 
 * templates/nginx.yaml is an EC2 template
