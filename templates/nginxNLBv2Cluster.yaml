@@ -2,16 +2,33 @@
 Description: "Nginx proxy Network LoadBalancer,Target Group, ASG and Launch Template"
 AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
+  ASI:
+    Type: String
+    MinLength: 2
+    MaxLength: 4
+    Description: "asi - must be lower-case, limit 4 characters"
+    AllowedPattern: "[a-z]*"
+  Environment:
+    Type: String
+    MinLength: 3
+    MaxLength: 7
+    Description: "environment (nonprod|dev|itg|cat|prod) - must be lower-case, limit 7 characters"
+    AllowedPattern: "[a-z]*"
+  Owner:
+    Type: String
+    Description: "email address of the the Owner of this stack"
+    Default: "admin@root.com"
+    AllowedPattern: "^[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
   vpcid:
     Type: AWS::EC2::VPC::Id
   keyname:
     Type: AWS::EC2::KeyPair::KeyName
-#  securitygroup:
-#    Type: AWS::EC2::SecurityGroup::Id
-#    Description: "EC2 Security group for instance"
-  publicsubnets:
-    Type: List<AWS::EC2::Subnet::Id>
-    Description: "public subnets for nlb"
+  lbsubneta:
+    Type: AWS::EC2::Subnet::Id
+    Description: "public subnet for load balancer placment"
+  lbsubnetb:
+    Type: AWS::EC2::Subnet::Id
+    Description: "public subnet for load balancer placment"
   subnetid:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "private subnets for autoscale group"
@@ -25,12 +42,20 @@ Mappings:
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
+    - 
+      Label:
+        default: "Environment Configuration"
+      Parameters:
+      - ASI
+      - Environment
+      - Owner
     -
       Label: 
         default: "Network Configuration"
       Parameters:
         - vpcid
-        - publicsubnets
+        - lbsubneta
+        - lbsubnetb
         - subnetid
     -
       Label:
@@ -144,6 +169,15 @@ Resources:
         -
           Key: "Name"
           Value: "asg-sg"
+        -
+          Key: "Project"
+          Value: !Ref ASI
+        -
+          Key: "Environment"
+          Value: !Ref Environment
+        -
+          Key: "Owner"
+          Value: !Ref Owner
 
   AutoScalingGroup:
     Type: "AWS::AutoScaling::AutoScalingGroup"
@@ -174,8 +208,21 @@ Resources:
       TargetGroupARNs: 
         - !Ref TargetGroup
       Tags:
-      - Key: "Name"
+      - 
+        Key: "Name"
         Value: "nlb-asg"
+        PropagateAtLaunch: true      
+      -
+        Key: "Project"
+        Value: !Ref ASI
+        PropagateAtLaunch: true      
+      -
+        Key: "Environment"
+        Value: !Ref Environment
+        PropagateAtLaunch: true      
+      -
+        Key: "Owner"
+        Value: !Ref Owner
         PropagateAtLaunch: true      
 
   TargetGroup:
@@ -190,22 +237,52 @@ Resources:
       HealthyThresholdCount: 3
       UnhealthyThresholdCount: 3
       Tags:
-      - Key: "Name"
+      - 
+        Key: "Name"
         Value: "nginx-tg"
+      -
+        Key: "Project"
+        Value: !Ref ASI
+      -
+        Key: "Environment"
+        Value: !Ref Environment
+      -
+        Key: "Owner"
+        Value: !Ref Owner
+
+  ElasticIpA:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  ElasticIpB:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
 
   ElasticLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Subnets: !Ref publicsubnets
+#      Subnets: !Ref publicsubnets
       Scheme: "internet-facing"
-#      SubnetMappings:
-#        - AllocationId: !Ref firsteipallocationid
-#          SubnetId: !Ref lbsubneta
-#        - AllocationId: !Ref secondeipallocationid
-#          SubnetId: !Ref lbsubnetb
+      SubnetMappings:
+        - AllocationId: !GetAtt ElasticIpA.AllocationId
+          SubnetId: !Ref lbsubneta
+        - AllocationId: !GetAtt ElasticIpB.AllocationId
+          SubnetId: !Ref lbsubnetb
       Tags:
-        - Key: "Name"
+        - 
+          Key: "Name"
           Value: "http-nlb"
+        -
+          Key: "Project"
+          Value: !Ref ASI
+        -
+          Key: "Environment"
+          Value: !Ref Environment
+        -
+          Key: "Owner"
+          Value: !Ref Owner
       Type: "network"
 
   LoadBalancerListener:
@@ -319,5 +396,8 @@ Resources:
 # fix configuration pulling to use new model with s3 buckets
 # add logging, improve health checks, and notifications
 # done! add creation of IAM role for this group to the file: enable S3 access for configs, etc.
-# add eip allocation to stack
-# add tls support for port 443      
+# done! add eip allocation to stack
+# add tls support for port 443
+# improve tagging by using !Sub or !Join to create resource name values
+# add certificate support
+# fix role and profile names to allow multiple deployments in a single account      
