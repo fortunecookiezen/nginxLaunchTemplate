@@ -263,7 +263,6 @@ Resources:
   ElasticLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-#      Subnets: !Ref publicsubnets
       Scheme: "internet-facing"
       SubnetMappings:
         - AllocationId: !GetAtt ElasticIpA.AllocationId
