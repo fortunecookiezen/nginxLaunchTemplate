@@ -2,6 +2,24 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "generic nginx host for testing purposes"
 Parameters:
+  ASI:
+    Type: String
+    MinLength: 2
+    MaxLength: 4
+    Description: "asi - must be lower-case, limit 4 characters"
+    AllowedPattern: "[a-z]*"
+  Environment:
+    Type: String
+    MinLength: 3
+    MaxLength: 7
+    Description: "environment (nonprod|dev|itg|cat|prod) - must be lower-case, limit 7 characters"
+    AllowedPattern: "[a-z]*"
+  Owner:
+    Type: String
+    Description: "email address of the the Owner of this stack"
+    Default: "admin@root.com"
+    AllowedPattern: "^[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
+
   subnetid:
     Type: AWS::EC2::Subnet::Id
     Description: "need subnet id for EC2 instance"
@@ -16,8 +34,21 @@ Parameters:
       - MEDIUM
       - LARGE
     Description: Select Environment Size (S,M,L)
+
   keyname:
     Type: AWS::EC2::KeyPair::KeyName
+  vpcid:
+    Type: AWS::EC2::VPC::Id
+  lbsubneta:
+    Type: AWS::EC2::Subnet::Id
+    Description: "public subnet for load balancer placment"
+  lbsubnetb:
+    Type: AWS::EC2::Subnet::Id
+    Description: "public subnet for load balancer placment"
+#  subnetid:
+#    Type: List<AWS::EC2::Subnet::Id>
+#    Description: "private subnets for autoscale group"
+
 Mappings:
   RegionMap:
     us-east-1:
@@ -31,6 +62,32 @@ Mappings:
       "EC2" : "t3.medium"
     LARGE:
       "EC2" : "t3.large"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - 
+      Label:
+        default: "Environment Configuration"
+      Parameters:
+      - ASI
+      - Environment
+      - Owner
+    -
+      Label: 
+        default: "Network Configuration"
+      Parameters:
+        - vpcid
+        - lbsubneta
+        - lbsubnetb
+        - subnetid
+    -
+      Label:
+        default: "Host Configuration"
+      Parameters:
+        - keyname
+        - securitygroups
+
 Resources:
   EC2:
     Type: "AWS::EC2::Instance"
