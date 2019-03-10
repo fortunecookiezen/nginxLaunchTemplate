@@ -166,7 +166,7 @@ Resources:
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
         config_nginx:
           sources: 
-            /etc/nginx: !Sub "https://s3.amazonaws.com/${DeploymentBucketName}/${ASI}/${Environment}/nginx.tar.gz"
+            /etc/nginx: !Sub "https://s3.amazonaws.com/${DeploymentBucketName}/${ASI}/${Environment}/nginx-webhost.tar.gz"
           services: 
             sysvinit: 
               nginx: 
