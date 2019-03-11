@@ -474,14 +474,15 @@ Outputs:
     Description: "ConfigVersion -- useful for rolling an update"
     Value: !Ref ConfigVersion
 
-# to do: add proper security groups to this
-# restrict launch template to elb
+# to do: 
+# done! add proper security groups to this
+# restrict launch template to elb //what did I mean by this?
 # done! create security groups for launch template and allow nlb traffic through (80/443)
-# in-progress fix configuration pulling to use new model with s3 buckets
+# done! fix configuration pulling to use new model with s3 buckets
 # add logging, improve health checks, and notifications
 # done! add creation of IAM role for this group to the file: enable S3 access for configs, etc.
 # done! add eip allocation to stack
-# in-progress add tls support for nginx port 443
-# improve tagging by using !Sub or !Join to create resource name values
+# done! add tls support for nginx port 443
+# done! improve tagging by using !Sub or !Join to create resource name values
 # done! add certificate support
 # done! fix role and profile names to allow multiple deployments in a single account      
