@@ -2,6 +2,12 @@
 Description: "Nginx proxy Network LoadBalancer,Target Group, ASG and Launch Template"
 AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
+  App:
+    Type: String
+    AllowedValues:
+      - api
+      - www
+    Description: "Select endpoint proxy (api|www)"
   ASI:
     Type: String
     MinLength: 2
@@ -19,6 +25,15 @@ Parameters:
     Description: "email address of the the Owner of this stack"
     Default: "admin@root.com"
     AllowedPattern: "^[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
+  ConfigVersion:
+    Type: String
+    Description: "major.minor version of the config to use, eg: 1.0"
+    MinLength: 3
+    MaxLength: 5
+    AllowedPattern: '(\d{1,2})\.(\d{1,2})'
+  DeploymentBucketName:
+    Type: String
+    Description: "s3 bucket where deployment files are kept"
   certificatearn:
     Type: String
     Description: "arn for the load balancer tls listener certificate"
@@ -49,9 +64,11 @@ Metadata:
       Label:
         default: "Environment Configuration"
       Parameters:
+      - App
       - ASI
       - Environment
       - Owner
+      - ConfigVersion
     -
       Label: 
         default: "Network Configuration"
@@ -64,6 +81,7 @@ Metadata:
       Label:
         default: "Launch Template Configuration"
       Parameters:
+        - DeploymentBucketName
         - keyname
         - certificatearn
 
@@ -71,6 +89,13 @@ Resources:
   LaunchTemplate: 
     Type: "AWS::EC2::LaunchTemplate"
     Metadata:
+      AWS::CloudFormation::Authentication:
+        S3Access:
+          type: "S3"
+          buckets:
+            - !Ref DeploymentBucketName
+          roleName:
+            Ref: NgxLtRole
       AWS::CloudFormation::Init:
         configSets:
           nginx:
@@ -107,8 +132,15 @@ Resources:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
         config_nginx:
+          files:
+            /etc/nginx/configVersion:
+              content: !Sub |
+                Version ${ConfigVersion}
+            mode: 000755
+            owner: "root"
+            group: "root"
           sources: 
-            /etc/nginx: "https://github.com/fortunecookiezen/ec2nginx/tarball/master"
+            /etc/nginx: !Sub "https://s3.amazonaws.com/${DeploymentBucketName}/${ASI}/${Environment}/nginx-${App}-proxy.tar.gz"
           services: 
             sysvinit: 
               nginx: 
@@ -116,6 +148,9 @@ Resources:
                 ensureRunning: true
                 files: 
                   - "/etc/nginx/nginx.conf"
+                  - "/etc/nginx/configVersion"
+                sources:
+                  - "/etc/nginx"
         verify_instance_health:
           commands:
             ELBHealthCheck:
@@ -125,7 +160,7 @@ Resources:
                  --instances $(curl -s http://169.254.169.254/latest/meta-data/instance-id)
                  --query InstanceStates[0].State); sleep 10; done'
     Properties:
-      LaunchTemplateName: "nginx"
+      LaunchTemplateName: !Join ["-", [!Ref "AWS::StackName", "nginx", !Ref App]]
       LaunchTemplateData:
         IamInstanceProfile: 
             Name: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
@@ -142,16 +177,21 @@ Resources:
               /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
               yum -y update
               amazon-linux-extras install nginx1.12 -y
-              /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
+              mkdir -m 700 /etc/ssl/private
+              openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+              -keyout /etc/ssl/private/nginx-selfsigned.key \
+              -out /etc/ssl/certs/nginx-selfsigned.crt \
+              -subj '/C=US/ST=Nebraska/L=Omaha/O=${ASI}/OU=${Environment}/CN=${App}.${Environment}.${ASI}.aws.service/emailAddress=${Owner}'
               /bin/systemctl enable nginx.service #manually enable this thing
               /bin/systemctl restart nginx.service #manually kick this thing
+              /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
 
 # Begin other resource definitions
   AutoScaleGroupSg:
     Type: "AWS::EC2::SecurityGroup"
     Properties:
       GroupName: !Ref "AWS::StackName"
-      GroupDescription: "nginx security group"
+      GroupDescription: !Sub "${App} nginx security group"
       VpcId: !Ref vpcid
       SecurityGroupIngress:
         -
@@ -164,6 +204,12 @@ Resources:
           IpProtocol: "TCP"
           ToPort: 80
           FromPort: 80
+        -
+          CidrIp: 0.0.0.0/0
+          IpProtocol: "TCP"
+          ToPort: 443
+          FromPort: 443
+
       SecurityGroupEgress:
         -
           CidrIp: 0.0.0.0/0
@@ -172,7 +218,7 @@ Resources:
       Tags:
         -
           Key: "Name"
-          Value: "asg-sg"
+          Value: !Sub "${App}-asg-sg"
         -
           Key: "Project"
           Value: !Ref ASI
@@ -214,7 +260,7 @@ Resources:
       Tags:
       - 
         Key: "Name"
-        Value: "nlb-asg"
+        Value: !Sub "${App}-nlb-asg"
         PropagateAtLaunch: true      
       -
         Key: "Project"
@@ -227,6 +273,10 @@ Resources:
       -
         Key: "Owner"
         Value: !Ref Owner
+        PropagateAtLaunch: true
+      -
+        Key: "ConfigVersion"
+        Value: !Ref ConfigVersion
         PropagateAtLaunch: true      
 
   TargetGroup80:
@@ -243,7 +293,7 @@ Resources:
       Tags:
       - 
         Key: "Name"
-        Value: "nginx-tg"
+        Value: !Sub "${App}-nginx-tg"
       -
         Key: "Project"
         Value: !Ref ASI
@@ -276,7 +326,7 @@ Resources:
       Tags:
         - 
           Key: "Name"
-          Value: "http-nlb"
+          Value: !Sub "${App}-http-nlb"
         -
           Key: "Project"
           Value: !Ref ASI
@@ -406,14 +456,32 @@ Resources:
       - !Ref NgxLtRole
       InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
 
+Outputs:
+  nlbPublicDnsName:
+    Description: public url for network load balancer
+    Value: !Join ["", ["https://", !GetAtt ElasticLoadBalancer.DNSName, "/"]]
+  publicIpA:
+    Description: "public ip of network load balancer"
+    Value: !Ref ElasticIpA
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", publicIpA]]
+  publicIpB:
+    Description: "public ip of network load balancer"
+    Value: !Ref ElasticIpB
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", publicIpB]]
+  configVersion:
+    Description: "ConfigVersion -- useful for rolling an update"
+    Value: !Ref ConfigVersion
+
 # to do: add proper security groups to this
 # restrict launch template to elb
 # done! create security groups for launch template and allow nlb traffic through (80/443)
-# fix configuration pulling to use new model with s3 buckets
+# in-progress fix configuration pulling to use new model with s3 buckets
 # add logging, improve health checks, and notifications
 # done! add creation of IAM role for this group to the file: enable S3 access for configs, etc.
 # done! add eip allocation to stack
-# add tls support for port 443
+# in-progress add tls support for nginx port 443
 # improve tagging by using !Sub or !Join to create resource name values
-# add certificate support
-# done fix role and profile names to allow multiple deployments in a single account      
+# done! add certificate support
+# done! fix role and profile names to allow multiple deployments in a single account      
