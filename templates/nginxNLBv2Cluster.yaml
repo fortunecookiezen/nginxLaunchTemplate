@@ -50,13 +50,26 @@ Parameters:
   subnetid:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "private subnets for autoscale group"
+  EnvironmentSize:
+    Type: String
+    Default: SMALL
+    AllowedValues:
+      - SMALL
+      - MEDIUM
+      - LARGE
 Mappings:
   RegionMap:
     us-east-1:
       "AMALINUX2" : "ami-035be7bafff33b6b6"
     us-west-2:
       "AMALINUX2" : "ami-032509850cf9ee54e"
-
+  InstanceSize:
+    SMALL:
+      "EC2" : "t3.small"
+    MEDIUM:
+      "EC2" : "t3.medium"
+    LARGE:
+      "EC2" : "t3.large"
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -82,6 +95,7 @@ Metadata:
         default: "Launch Template Configuration"
       Parameters:
         - DeploymentBucketName
+        - EnvironmentSize
         - keyname
         - certificatearn
 
@@ -165,7 +179,7 @@ Resources:
         IamInstanceProfile: 
             Name: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
         ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMALINUX2]
-        InstanceType: "t3.small"
+        InstanceType: !FindInMap [InstanceSize, !Ref EnvironmentSize, EC2]
         KeyName: !Ref keyname
         SecurityGroupIds:
           - !Ref AutoScaleGroupSg
