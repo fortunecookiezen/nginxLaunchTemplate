@@ -1,0 +1,416 @@
+---
+Description: "Nginx, Application LoadBalancer,Target Group, ASG and Launch Template. Used for backend purposes"
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  App:
+    Type: String
+    AllowedValues:
+      - api
+      - www
+    Description: "Select endpoint proxy (api|www)"
+  ASI:
+    Type: String
+    MinLength: 2
+    MaxLength: 4
+    Description: "asi - must be lower-case, limit 4 characters"
+    AllowedPattern: "[a-z]*"
+  Environment:
+    Type: String
+    MinLength: 3
+    MaxLength: 7
+    Description: "environment (nonprod|dev|itg|cat|prod) - must be lower-case, limit 7 characters"
+    AllowedPattern: "[a-z]*"
+  Owner:
+    Type: String
+    Description: "email address of the the Owner of this stack"
+    Default: "admin@root.com"
+    AllowedPattern: "^[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
+  DeploymentBucketName:
+    Type: String
+    Description: "s3 bucket where deployment files are kept"
+  certificatearn:
+    Type: String
+    Description: "arn for the load balancer tls listener certificate"
+  vpcid:
+    Type: AWS::EC2::VPC::Id
+  keyname:
+    Type: AWS::EC2::KeyPair::KeyName
+  subnetid:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "private subnets for autoscale group"
+  EnvironmentSize:
+    Type: String
+    Default: SMALL
+    AllowedValues:
+      - SMALL
+      - MEDIUM
+      - LARGE
+Mappings:
+  RegionMap:
+    us-east-1:
+      "AMALINUX2" : "ami-035be7bafff33b6b6"
+    us-west-2:
+      "AMALINUX2" : "ami-032509850cf9ee54e"
+  InstanceSize:
+    SMALL:
+      "EC2" : "t3.small"
+    MEDIUM:
+      "EC2" : "t3.medium"
+    LARGE:
+      "EC2" : "t3.large"
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - 
+      Label:
+        default: "Environment Configuration"
+      Parameters:
+        - App
+        - ASI
+        - Environment
+        - Owner
+    -
+      Label: 
+        default: "Network Configuration"
+      Parameters:
+        - vpcid
+        - subnetid
+    -
+      Label:
+        default: "Launch Template Configuration"
+      Parameters:
+        - DeploymentBucketName
+        - EnvironmentSize
+        - keyname
+        - certificatearn
+
+Resources:
+  LaunchTemplate: 
+    Type: "AWS::EC2::LaunchTemplate"
+    Metadata:
+      AWS::CloudFormation::Authentication:
+        S3Access:
+          type: "S3"
+          buckets:
+            - !Ref DeploymentBucketName
+          roleName:
+            Ref: NgxLtRole
+      AWS::CloudFormation::Init:
+        configSets:
+          nginx:
+            - "configure_cfn"
+            - "config_nginx"
+            - "verify_instance_health"
+        configure_cfn:
+          files:
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.LaunchTemplate.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
+              mode: "000400"
+              owner: root
+              group: root
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+                verbose=true
+                interval=5
+              mode: "000400"
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - "/etc/cfn/cfn-hup.conf"
+                  - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
+        config_nginx:
+          sources: 
+            /etc/nginx: !Sub "https://s3.amazonaws.com/${DeploymentBucketName}/${ASI}/${Environment}/nginx-webhost.tar.gz"
+          services: 
+            sysvinit: 
+              nginx: 
+                enabled: true
+                ensureRunning: true
+                files: 
+                  - "/etc/nginx/nginx.conf"
+        verify_instance_health:
+          commands:
+            ELBHealthCheck:
+              command: !Sub
+                'until [ "$state" == "\"InService\"" ]; do state=$(aws --region ${AWS::Region} elb describe-instance-health
+                 --load-balancer-name ${ElasticLoadBalancer}
+                 --instances $(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+                 --query InstanceStates[0].State); sleep 10; done'
+    Properties:
+      LaunchTemplateName: !Join ["-", [!Ref "AWS::StackName", "nginx", !Ref App]]
+      LaunchTemplateData:
+        IamInstanceProfile: 
+            Name: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
+        ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMALINUX2]
+        InstanceType: !FindInMap [InstanceSize, !Ref EnvironmentSize, EC2]
+        KeyName: !Ref keyname
+        SecurityGroupIds:
+          - !Ref AutoScaleGroupSg
+        UserData:
+          "Fn::Base64":
+            !Sub |
+              #!/usr/bin/env bash
+              yum update -y aws-cfn-bootstrap # good practice - always do this.
+              /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
+              yum -y update
+              amazon-linux-extras install nginx1.12 -y
+              # openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 #takes too long
+              mkdir -m 700 /etc/ssl/private
+              openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+              -keyout /etc/ssl/private/nginx-selfsigned.key \
+              -out /etc/ssl/certs/nginx-selfsigned.crt \
+              -subj '/C=US/ST=Nebraska/L=Omaha/O=${ASI}/OU=${Environment}/CN=${App}.${Environment}.${ASI}.aws.service/emailAddress=${Owner}'
+              /bin/systemctl enable nginx.service #manually enable this thing
+              /bin/systemctl restart nginx.service #manually kick this thing
+              /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
+
+# Begin other resource definitions
+  AutoScaleGroupSg:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Ref "AWS::StackName"
+      GroupDescription: "nginx security group"
+      VpcId: !Ref vpcid
+      SecurityGroupIngress:
+        -
+          CidrIp: 10.0.0.0/8
+          IpProtocol: "-1"
+          ToPort: -1
+          FromPort: -1
+        -
+          CidrIp: 10.0.0.0/8
+          IpProtocol: "TCP"
+          ToPort: 80
+          FromPort: 80
+        -
+          CidrIp: 10.0.0.0/8
+          IpProtocol: "TCP"
+          ToPort: 443
+          FromPort: 443
+      SecurityGroupEgress:
+        -
+          CidrIp: 0.0.0.0/0
+          ToPort: -1
+          IpProtocol: "-1"
+      Tags:
+        -
+          Key: "Name"
+          Value: !Sub "${App}-asg-sg"
+        -
+          Key: "Project"
+          Value: !Ref ASI
+        -
+          Key: "Environment"
+          Value: !Ref Environment
+        -
+          Key: "Owner"
+          Value: !Ref Owner
+
+  AutoScalingGroup:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    CreationPolicy:
+      ResourceSignal:
+       Count: "1"
+       Timeout: PT15M        
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MaxBatchSize: 1
+        MinInstancesInService: 1
+        PauseTime: PT15M
+        WaitOnResourceSignals: true
+    Properties:
+      MinSize: "2"
+      MaxSize: "5"
+      Cooldown: "120"
+      DesiredCapacity: "2"
+      LaunchTemplate:
+        LaunchTemplateId:
+          Ref: "LaunchTemplate"
+        Version:
+          Fn::GetAtt:
+            [ "LaunchTemplate", "LatestVersionNumber" ]
+      VPCZoneIdentifier: !Ref subnetid
+      TargetGroupARNs: 
+        - !Ref TargetGroup443
+      Tags:
+      - 
+        Key: "Name"
+        Value: !Sub "${App}-alb-asg"
+        PropagateAtLaunch: true      
+      -
+        Key: "Project"
+        Value: !Ref ASI
+        PropagateAtLaunch: true      
+      -
+        Key: "Environment"
+        Value: !Ref Environment
+        PropagateAtLaunch: true      
+      -
+        Key: "Owner"
+        Value: !Ref Owner
+        PropagateAtLaunch: true      
+
+  TargetGroup443:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 443
+      Protocol: "HTTPS"
+      VpcId: !Ref vpcid
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckPort: "443"
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+      Tags:
+      - 
+        Key: "Name"
+        Value: !Sub "${App}-nginx-tg"
+      -
+        Key: "Project"
+        Value: !Ref ASI
+      -
+        Key: "Environment"
+        Value: !Ref Environment
+      -
+        Key: "Owner"
+        Value: !Ref Owner
+
+  ElasticLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: "internal"
+      Subnets: !Ref subnetid
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Sub "${App}-https-alb"
+        -
+          Key: "Project"
+          Value: !Ref ASI
+        -
+          Key: "Environment"
+          Value: !Ref Environment
+        -
+          Key: "Owner"
+          Value: !Ref Owner
+      Type: "application"
+
+  LoadBalancer443:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !Ref certificatearn
+      LoadBalancerArn: !Ref ElasticLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup443
+      SslPolicy: "ELBSecurityPolicy-2016-08"
+
+  NgxLtRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+  RolePolicies:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: nginxEC2
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - ssm:DescribeAssociation
+          - ssm:GetDeployablePatchSnapshotForInstance
+          - ssm:GetDocument
+          - ssm:DescribeDocument
+          - ssm:GetManifest
+          - ssm:GetParameters
+          - ssm:ListAssociations
+          - ssm:ListInstanceAssociations
+          - ssm:PutInventory
+          - ssm:PutComplianceItems
+          - ssm:PutConfigurePackageResult
+          - ssm:UpdateAssociationStatus
+          - ssm:UpdateInstanceAssociationStatus
+          - ssm:UpdateInstanceInformation
+          Resource: "*"
+        - Effect: Allow
+          Action:
+          - ssmmessages:CreateControlChannel
+          - ssmmessages:CreateDataChannel
+          - ssmmessages:OpenControlChannel
+          - ssmmessages:OpenDataChannel
+          Resource: "*"
+        - Effect: Allow
+          Action:
+          - ec2messages:AcknowledgeMessage
+          - ec2messages:DeleteMessage
+          - ec2messages:FailMessage
+          - ec2messages:GetEndpoint
+          - ec2messages:GetMessages
+          - ec2messages:SendReply
+          Resource: "*"
+        - Effect: Allow
+          Action:
+          - cloudwatch:PutMetricData
+          Resource: "*"
+        - Effect: Allow
+          Action:
+          - ec2:DescribeInstanceStatus
+          Resource: "*"
+        - Effect: Allow
+          Action:
+          - ds:CreateComputer
+          - ds:DescribeDirectories
+          Resource: "*"
+        - Effect: Allow
+          Action:
+          - logs:CreateLogGroup
+          - logs:CreateLogStream
+          - logs:DescribeLogGroups
+          - logs:DescribeLogStreams
+          - logs:PutLogEvents         
+          Resource: "*"
+        - Effect: Allow
+          Action: 
+          - s3:GetBucketLocation
+          - s3:PutObject
+          - s3:GetObject
+          - s3:GetEncryptionConfiguration
+          - s3:AbortMultipartUpload
+          - s3:ListMultipartUploadParts
+          - s3:ListBucket
+          - s3:ListBucketMultipartUploads
+          Resource: "*"
+      Roles:
+      - !Ref NgxLtRole
+  RootInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - !Ref NgxLtRole
+      InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
