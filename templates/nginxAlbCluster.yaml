@@ -1,5 +1,5 @@
 ---
-Description: "Nginx proxy Network LoadBalancer,Target Group, ASG and Launch Template"
+Description: "Nginx, Application LoadBalancer,Target Group, ASG and Launch Template. Used for backend purposes"
 AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
   App:
@@ -25,12 +25,6 @@ Parameters:
     Description: "email address of the the Owner of this stack"
     Default: "admin@root.com"
     AllowedPattern: "^[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
-  ConfigVersion:
-    Type: String
-    Description: "major.minor version of the config to use, eg: 1.0"
-    MinLength: 3
-    MaxLength: 5
-    AllowedPattern: '(\d{1,2})\.(\d{1,2})'
   DeploymentBucketName:
     Type: String
     Description: "s3 bucket where deployment files are kept"
@@ -41,12 +35,6 @@ Parameters:
     Type: AWS::EC2::VPC::Id
   keyname:
     Type: AWS::EC2::KeyPair::KeyName
-  lbsubneta:
-    Type: AWS::EC2::Subnet::Id
-    Description: "public subnet for load balancer placment"
-  lbsubnetb:
-    Type: AWS::EC2::Subnet::Id
-    Description: "public subnet for load balancer placment"
   subnetid:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "private subnets for autoscale group"
@@ -77,18 +65,15 @@ Metadata:
       Label:
         default: "Environment Configuration"
       Parameters:
-      - App
-      - ASI
-      - Environment
-      - Owner
-      - ConfigVersion
+        - App
+        - ASI
+        - Environment
+        - Owner
     -
       Label: 
         default: "Network Configuration"
       Parameters:
         - vpcid
-        - lbsubneta
-        - lbsubnetb
         - subnetid
     -
       Label:
@@ -146,15 +131,8 @@ Resources:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
         config_nginx:
-          files:
-            /etc/nginx/configVersion:
-              content: !Sub |
-                Version ${ConfigVersion}
-            mode: 000755
-            owner: "root"
-            group: "root"
           sources: 
-            /etc/nginx: !Sub "https://s3.amazonaws.com/${DeploymentBucketName}/${ASI}/${Environment}/nginx-${App}-proxy.tar.gz"
+            /etc/nginx: !Sub "https://s3.amazonaws.com/${DeploymentBucketName}/${ASI}/${Environment}/nginx-webhost.tar.gz"
           services: 
             sysvinit: 
               nginx: 
@@ -162,9 +140,6 @@ Resources:
                 ensureRunning: true
                 files: 
                   - "/etc/nginx/nginx.conf"
-                  - "/etc/nginx/configVersion"
-                sources:
-                  - "/etc/nginx"
         verify_instance_health:
           commands:
             ELBHealthCheck:
@@ -191,6 +166,7 @@ Resources:
               /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
               yum -y update
               amazon-linux-extras install nginx1.12 -y
+              # openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 #takes too long
               mkdir -m 700 /etc/ssl/private
               openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
               -keyout /etc/ssl/private/nginx-selfsigned.key \
@@ -205,7 +181,7 @@ Resources:
     Type: "AWS::EC2::SecurityGroup"
     Properties:
       GroupName: !Ref "AWS::StackName"
-      GroupDescription: !Sub "${App} nginx security group"
+      GroupDescription: "nginx security group"
       VpcId: !Ref vpcid
       SecurityGroupIngress:
         -
@@ -214,16 +190,15 @@ Resources:
           ToPort: -1
           FromPort: -1
         -
-          CidrIp: 0.0.0.0/0
+          CidrIp: 10.0.0.0/8
           IpProtocol: "TCP"
           ToPort: 80
           FromPort: 80
         -
-          CidrIp: 0.0.0.0/0
+          CidrIp: 10.0.0.0/8
           IpProtocol: "TCP"
           ToPort: 443
           FromPort: 443
-
       SecurityGroupEgress:
         -
           CidrIp: 0.0.0.0/0
@@ -267,14 +242,12 @@ Resources:
           Fn::GetAtt:
             [ "LaunchTemplate", "LatestVersionNumber" ]
       VPCZoneIdentifier: !Ref subnetid
-        #- ""
-        #- ""
       TargetGroupARNs: 
-        - !Ref TargetGroup80
+        - !Ref TargetGroup443
       Tags:
       - 
         Key: "Name"
-        Value: !Sub "${App}-nlb-asg"
+        Value: !Sub "${App}-alb-asg"
         PropagateAtLaunch: true      
       -
         Key: "Project"
@@ -287,20 +260,16 @@ Resources:
       -
         Key: "Owner"
         Value: !Ref Owner
-        PropagateAtLaunch: true
-      -
-        Key: "ConfigVersion"
-        Value: !Ref ConfigVersion
         PropagateAtLaunch: true      
 
-  TargetGroup80:
+  TargetGroup443:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Port: 80
-      Protocol: "TCP"
+      Port: 443
+      Protocol: "HTTPS"
       VpcId: !Ref vpcid
-      HealthCheckProtocol: "HTTP"
-      HealthCheckPort: "80"
+      HealthCheckProtocol: "HTTPS"
+      HealthCheckPort: "443"
       HealthCheckIntervalSeconds: 30
       HealthyThresholdCount: 3
       UnhealthyThresholdCount: 3
@@ -318,29 +287,15 @@ Resources:
         Key: "Owner"
         Value: !Ref Owner
 
-  ElasticIpA:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-
-  ElasticIpB:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-
   ElasticLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Scheme: "internet-facing"
-      SubnetMappings:
-        - AllocationId: !GetAtt ElasticIpA.AllocationId
-          SubnetId: !Ref lbsubneta
-        - AllocationId: !GetAtt ElasticIpB.AllocationId
-          SubnetId: !Ref lbsubnetb
+      Scheme: "internal"
+      Subnets: !Ref subnetid
       Tags:
         - 
           Key: "Name"
-          Value: !Sub "${App}-http-nlb"
+          Value: !Sub "${App}-https-alb"
         -
           Key: "Project"
           Value: !Ref ASI
@@ -350,17 +305,7 @@ Resources:
         -
           Key: "Owner"
           Value: !Ref Owner
-      Type: "network"
-
-  LoadBalancer80:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref ElasticLoadBalancer
-      Port: 80
-      Protocol: TCP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref TargetGroup80
+      Type: "application"
 
   LoadBalancer443:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -369,10 +314,10 @@ Resources:
         - CertificateArn: !Ref certificatearn
       LoadBalancerArn: !Ref ElasticLoadBalancer
       Port: 443
-      Protocol: TLS
+      Protocol: HTTPS
       DefaultActions:
         - Type: forward
-          TargetGroupArn: !Ref TargetGroup80
+          TargetGroupArn: !Ref TargetGroup443
       SslPolicy: "ELBSecurityPolicy-2016-08"
 
   NgxLtRole:
@@ -469,34 +414,3 @@ Resources:
       Roles:
       - !Ref NgxLtRole
       InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
-
-Outputs:
-  nlbPublicDnsName:
-    Description: public url for network load balancer
-    Value: !Join ["", ["https://", !GetAtt ElasticLoadBalancer.DNSName, "/"]]
-  publicIpA:
-    Description: "public ip of network load balancer"
-    Value: !Ref ElasticIpA
-    Export:
-      Name: !Join [":", [!Ref "AWS::StackName", publicIpA]]
-  publicIpB:
-    Description: "public ip of network load balancer"
-    Value: !Ref ElasticIpB
-    Export:
-      Name: !Join [":", [!Ref "AWS::StackName", publicIpB]]
-  configVersion:
-    Description: "ConfigVersion -- useful for rolling an update"
-    Value: !Ref ConfigVersion
-
-# to do: 
-# done! add proper security groups to this
-# restrict launch template to elb //what did I mean by this?
-# done! create security groups for launch template and allow nlb traffic through (80/443)
-# done! fix configuration pulling to use new model with s3 buckets
-# add logging, improve health checks, and notifications
-# done! add creation of IAM role for this group to the file: enable S3 access for configs, etc.
-# done! add eip allocation to stack
-# done! add tls support for nginx port 443
-# done! improve tagging by using !Sub or !Join to create resource name values
-# done! add certificate support
-# done! fix role and profile names to allow multiple deployments in a single account      
