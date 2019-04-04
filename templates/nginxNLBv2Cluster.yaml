@@ -207,7 +207,7 @@ Resources:
   ProdAutoScaleGroupSg:
     Type: "AWS::EC2::SecurityGroup"
     Properties:
-      GroupName: !Ref "AWS::StackName"
+      GroupName: !Sub "${AWS::StackName}-prod"
       GroupDescription: !Sub "${App} nginx prod security group"
       VpcId: !Ref vpcid
       SecurityGroupIngress:
@@ -249,7 +249,7 @@ Resources:
   NonProdAutoScaleGroupSg:
     Type: "AWS::EC2::SecurityGroup"
     Properties:
-      GroupName: !Ref "AWS::StackName"
+      GroupName: !Sub "${AWS::StackName}-nonprod"
       GroupDescription: !Sub "${App} nginx nonprod security group"
       VpcId: !Ref vpcid
       SecurityGroupIngress:
