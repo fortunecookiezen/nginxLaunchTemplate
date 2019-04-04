@@ -57,6 +57,9 @@ Parameters:
       - SMALL
       - MEDIUM
       - LARGE
+Conditions:
+  isProd:
+    !Equals [!Ref Environment, "prod"]
 Mappings:
   RegionMap:
     us-east-1:
@@ -182,7 +185,7 @@ Resources:
         InstanceType: !FindInMap [InstanceSize, !Ref EnvironmentSize, EC2]
         KeyName: !Ref keyname
         SecurityGroupIds:
-          - !Ref AutoScaleGroupSg
+          - !If [isProd, !Ref ProdAutoScaleGroupSg, !Ref NonProdAutoScaleGroupSg]
         UserData:
           "Fn::Base64":
             !Sub |
@@ -201,11 +204,11 @@ Resources:
               /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
 
 # Begin other resource definitions
-  AutoScaleGroupSg:
+  ProdAutoScaleGroupSg:
     Type: "AWS::EC2::SecurityGroup"
     Properties:
       GroupName: !Ref "AWS::StackName"
-      GroupDescription: !Sub "${App} nginx security group"
+      GroupDescription: !Sub "${App} nginx prod security group"
       VpcId: !Ref vpcid
       SecurityGroupIngress:
         -
@@ -232,7 +235,59 @@ Resources:
       Tags:
         -
           Key: "Name"
-          Value: !Sub "${App}-asg-sg"
+          Value: !Sub "${App}-asg-prod-sg"
+        -
+          Key: "Project"
+          Value: !Ref ASI
+        -
+          Key: "Environment"
+          Value: !Ref Environment
+        -
+          Key: "Owner"
+          Value: !Ref Owner
+
+  NonProdAutoScaleGroupSg:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Ref "AWS::StackName"
+      GroupDescription: !Sub "${App} nginx nonprod security group"
+      VpcId: !Ref vpcid
+      SecurityGroupIngress:
+        -
+          CidrIp: 10.0.0.0/8
+          IpProtocol: "-1"
+          ToPort: -1
+          FromPort: -1
+        -
+          CidrIp: 10.0.0.0/8
+          IpProtocol: "TCP"
+          ToPort: 80
+          FromPort: 80
+        -
+          CidrIp: 10.0.0.0/8
+          IpProtocol: "TCP"
+          ToPort: 443
+          FromPort: 443
+        -
+          CidrIp: 172.16.0.0/12
+          IpProtocol: "TCP"
+          ToPort: 80
+          FromPort: 80
+        -
+          CidrIp: 172.16.0.0/12
+          IpProtocol: "TCP"
+          ToPort: 443
+          FromPort: 443
+
+      SecurityGroupEgress:
+        -
+          CidrIp: 0.0.0.0/0
+          ToPort: -1
+          IpProtocol: "-1"
+      Tags:
+        -
+          Key: "Name"
+          Value: !Sub "${App}-asg-nonprod-sg"
         -
           Key: "Project"
           Value: !Ref ASI
