@@ -60,6 +60,8 @@ Parameters:
 Conditions:
   isProd:
     !Equals [!Ref Environment, "prod"]
+  isNonProd:
+    !Not [!Equals [!Ref Environment, "prod"]]
 Mappings:
   RegionMap:
     us-east-1:
@@ -206,6 +208,7 @@ Resources:
 # Begin other resource definitions
   ProdAutoScaleGroupSg:
     Type: "AWS::EC2::SecurityGroup"
+    Condition: isProd
     Properties:
       GroupName: !Sub "${AWS::StackName}-prod"
       GroupDescription: !Sub "${App} nginx prod security group"
@@ -248,6 +251,7 @@ Resources:
 
   NonProdAutoScaleGroupSg:
     Type: "AWS::EC2::SecurityGroup"
+    Condition: isNonProd
     Properties:
       GroupName: !Sub "${AWS::StackName}-nonprod"
       GroupDescription: !Sub "${App} nginx nonprod security group"
