@@ -159,7 +159,7 @@ Resources:
             owner: "root"
             group: "root"
           sources: 
-            /etc/nginx: !Sub "https://s3.amazonaws.com/${DeploymentBucketName}/${ASI}/${Environment}/nginx-${App}-proxy.tar.gz"
+            /etc/nginx: !Sub "https://s3.amazonaws.com/${DeploymentBucketName}/nginx/${ASI}-${Environment}-${App}-${AWS::Region}-proxy.zip"
           services: 
             sysvinit: 
               nginx: 
@@ -238,7 +238,7 @@ Resources:
       Tags:
         -
           Key: "Name"
-          Value: !Sub "${App}-asg-prod-sg"
+          Value: !Sub "${App}-${Environment}-asg-prod-sg"
         -
           Key: "Project"
           Value: !Ref ASI
@@ -291,7 +291,7 @@ Resources:
       Tags:
         -
           Key: "Name"
-          Value: !Sub "${App}-asg-nonprod-sg"
+          Value: !Sub "${App}-${Environment}-asg-nonprod-sg"
         -
           Key: "Project"
           Value: !Ref ASI
@@ -333,7 +333,7 @@ Resources:
       Tags:
       - 
         Key: "Name"
-        Value: !Sub "${App}-nlb-asg"
+        Value: !Sub "${App}-${Environment}-nlb-asg"
         PropagateAtLaunch: true      
       -
         Key: "Project"
@@ -366,7 +366,7 @@ Resources:
       Tags:
       - 
         Key: "Name"
-        Value: !Sub "${App}-nginx-tg"
+        Value: !Sub "${App}-${Environment}-nginx-tg"
       -
         Key: "Project"
         Value: !Ref ASI
@@ -399,7 +399,7 @@ Resources:
       Tags:
         - 
           Key: "Name"
-          Value: !Sub "${App}-http-nlb"
+          Value: !Sub "${App}-${Environment}-http-nlb"
         -
           Key: "Project"
           Value: !Ref ASI
