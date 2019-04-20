@@ -222,9 +222,8 @@ Resources:
             !Sub |
               #!/usr/bin/env bash
               # configVersion ${ConfigVersion}
-              yum update -y aws-cfn-bootstrap # good practice - always do this.
+              yum update -y # always do this yum update -y aws-cfn-bootstrap
               /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
-              yum -y update
               amazon-linux-extras install nginx1.12 -y
               /bin/systemctl enable nginx.service #manually enable this thing
               /bin/systemctl restart nginx.service #manually kick this thing
@@ -561,3 +560,4 @@ Outputs:
 # ToDo:
 # Create S3 bucket for logs, IAM Role and Policy that allows Elasticloadbalancer to write to log bucket
 # Is this one bucket per load balancer, or one logging bucket generally?
+# add ec2 log to cloudwatch configuration
