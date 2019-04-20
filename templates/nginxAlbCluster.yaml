@@ -34,9 +34,6 @@ Parameters:
   ProxyPassEndpoint:
     Type: String
     Description: "url of the upstream host you will proxy to"
-  DeploymentBucketName:
-    Type: String
-    Description: "s3 bucket where deployment files are kept"
   certificatearn:
     Type: String
     Description: "arn for the load balancer tls listener certificate"
@@ -103,7 +100,6 @@ Metadata:
         default: "Launch Template Configuration"
       Parameters:
         - ProxyPassEndpoint
-        - DeploymentBucketName
         - EnvironmentSize
         - keyname
         - certificatearn
@@ -112,13 +108,6 @@ Resources:
   LaunchTemplate: 
     Type: "AWS::EC2::LaunchTemplate"
     Metadata:
-      AWS::CloudFormation::Authentication:
-        S3Access:
-          type: "S3"
-          buckets:
-            - !Ref DeploymentBucketName
-          roleName:
-            Ref: NgxLtRole
       AWS::CloudFormation::Init:
         configSets:
           nginx:
@@ -399,6 +388,9 @@ Resources:
       Subnets:
         - !Ref lbsubneta
         - !Ref lbsubnetb
+      LoadBalancerAttributes:
+      - Key: 'access_logs.s3.enabled'
+        Value: 'false'
       Tags:
         - 
           Key: "Name"
@@ -444,9 +436,9 @@ Resources:
       DefaultActions:
       - Type: fixed-response
         FixedResponseConfig:
-          ContentType: "application/json"
-          MessageBody: "HTTP is not supported"
-          StatusCode: "405"
+          ContentType: 'application/json'
+          MessageBody: '{"message": "HTTP is not supported"}'
+          StatusCode: '405'
 
   LoadBalancer443:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -565,3 +557,7 @@ Outputs:
   configVersion:
     Description: "ConfigVersion -- useful for rolling an update"
     Value: !Ref ConfigVersion
+
+# ToDo:
+# Create S3 bucket for logs, IAM Role and Policy that allows Elasticloadbalancer to write to log bucket
+# Is this one bucket per load balancer, or one logging bucket generally?
