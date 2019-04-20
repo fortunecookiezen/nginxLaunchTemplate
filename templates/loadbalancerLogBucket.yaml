@@ -1,0 +1,61 @@
+Description: "s3 log bucket for elasticloadbalancer logs"
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  ASI:
+    Type: String
+    MinLength: 2
+    MaxLength: 5
+    Description: "asi - must be lower-case, limit 4 characters"
+    AllowedPattern: "[a-z]*"
+  Environment:
+    Type: String
+    MinLength: 3
+    MaxLength: 7
+    Description: "environment (nonprod|dev|itg|cat|prod) - must be lower-case, limit 7 characters"
+    AllowedPattern: "[a-z]*"
+  Owner:
+    Type: String
+    Description: "email address of the the Owner of this stack"
+    Default: "admin@root.com"
+    AllowedPattern: "^[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
+Resources:
+  ElbLogBucket:
+    DeletionPolicy: Delete
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Join
+      - '-'
+      - -  !Ref ASI
+        -  !Ref Environment
+        -  !Ref 'AWS::Region'
+        -  elblogs
+      AccessControl: LogDeliveryWrite
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        -
+          Key: "Project"
+          Value: !Ref ASI
+        -
+          Key: "Environment"
+          Value: !Ref Environment
+        -
+          Key: "Owner"
+          Value: !Ref Owner
+  ElbLogBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref ElbLogBucket
+      PolicyDocument:
+        Statement:
+        - Principal:
+            AWS: # https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-access-logs.html#access-logging-bucket-permissions
+            - 'arn:aws:iam::127311923021:root' # us-east-1
+            - 'arn:aws:iam::033677994240:root' # us-east-2
+            - 'arn:aws:iam::027434742980:root' # us-west-1
+            - 'arn:aws:iam::797873946194:root' # us-west-2
+          Action: 's3:PutObject'
+          Effect: Allow
+          Resource: !Sub '${ElbLogBucket.Arn}/*AWSLogs/${AWS::AccountId}/*'
