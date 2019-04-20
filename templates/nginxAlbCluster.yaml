@@ -244,7 +244,7 @@ Resources:
       Tags:
         -
           Key: "Name"
-          Value: !Sub "${ASI}-${Environment}-${App}-lb-sg"
+          Value: !Sub "${App}-${Environment}-${ASI}-lb-sg"
         -
           Key: "Project"
           Value: !Ref ASI
@@ -284,7 +284,7 @@ Resources:
       Tags:
         -
           Key: "Name"
-          Value: !Sub "${ASI}-${Environment}-${App}-asg-sg"
+          Value: !Sub "${App}-${Environment}-${ASI}-asg-sg"
         -
           Key: "Project"
           Value: !Ref ASI
@@ -324,7 +324,7 @@ Resources:
       Tags:
       - 
         Key: "Name"
-        Value: !Sub "${App}-alb-asg"
+        Value: !Sub "${App}-${Environment}-${ASI}-alb-asg"
         PropagateAtLaunch: true      
       -
         Key: "Project"
@@ -354,7 +354,7 @@ Resources:
       Tags:
       - 
         Key: "Name"
-        Value: !Sub "${App}-nginx-tg"
+        Value: !Sub "${App}-${Environment}-${ASI}-nginx-tg"
       -
         Key: "Project"
         Value: !Ref ASI
