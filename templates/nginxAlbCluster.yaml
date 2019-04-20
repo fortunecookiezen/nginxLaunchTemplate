@@ -31,6 +31,9 @@ Parameters:
     MinLength: 3
     MaxLength: 5
     AllowedPattern: '(\d{1,2})\.(\d{1,2})'
+  ProxyPassEndpoint:
+    Type: String
+    Description: "url of the upstream host you will proxy to"
   DeploymentBucketName:
     Type: String
     Description: "s3 bucket where deployment files are kept"
@@ -41,6 +44,12 @@ Parameters:
     Type: AWS::EC2::VPC::Id
   keyname:
     Type: AWS::EC2::KeyPair::KeyName
+  lbsubneta:
+    Type: AWS::EC2::Subnet::Id
+    Description: "public subnet for load balancer placment"
+  lbsubnetb:
+    Type: AWS::EC2::Subnet::Id
+    Description: "public subnet for load balancer placment"
   subnetid:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "private subnets for autoscale group"
@@ -55,7 +64,7 @@ Conditions:
   isApi:
     !Equals [!Ref App, "api"]
   isWww:
-    !Not [!Equals [!Ref App, "www"]]
+    !Equals [!Ref App, "www"]
 Mappings:
   RegionMap:
     us-east-1:
@@ -86,11 +95,14 @@ Metadata:
         default: "Network Configuration"
       Parameters:
         - vpcid
+        - lbsubneta
+        - lbsubnetb
         - subnetid
     -
       Label:
         default: "Launch Template Configuration"
       Parameters:
+        - ProxyPassEndpoint
         - DeploymentBucketName
         - EnvironmentSize
         - keyname
@@ -177,8 +189,18 @@ Resources:
                       proxy_set_header Host $host;
                       proxy_set_header X-Real-IP $remote_addr;
                       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_pass http://${App}.${Environment}.${ASI}.aws.service;
+                      proxy_pass ${ProxyPassEndpoint};
                     }
+                    location ~ ^/internal/ {
+                      return 404;
+                    }
+                  }
+                  server {
+                    listen 81 default_server;
+                    location /nginx-health {
+                      access_log off;
+                      return 200 "healthy\n";
+                      }
                   }                  
                 }
           services: 
@@ -272,6 +294,11 @@ Resources:
           ToPort: 80
           FromPort: 80
         -
+          SourceSecurityGroupId: !Ref LoadBalancerSg #health checks
+          IpProtocol: "TCP"
+          ToPort: 81
+          FromPort: 81
+        -
           SourceSecurityGroupId: !Ref LoadBalancerSg
           IpProtocol: "TCP"
           ToPort: 443
@@ -346,8 +373,8 @@ Resources:
       Protocol: "HTTP"
       VpcId: !Ref vpcid
       HealthCheckProtocol: "HTTP"
-      HealthCheckPort: "80"
-      HealthCheckPath: "/"
+      HealthCheckPort: "81"
+      HealthCheckPath: "/nginx-health"
       HealthCheckIntervalSeconds: 30
       HealthyThresholdCount: 3
       UnhealthyThresholdCount: 3
@@ -369,7 +396,9 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
       Scheme: "internet-facing"
-      Subnets: !Ref subnetid
+      Subnets:
+        - !Ref lbsubneta
+        - !Ref lbsubnetb
       Tags:
         - 
           Key: "Name"
@@ -530,6 +559,9 @@ Outputs:
   albPublicDnsName:
     Description: public url for network load balancer
     Value: !Join ["", ["https://", !GetAtt ElasticLoadBalancer.DNSName, "/"]]
+  proxyPassEndpoint:
+    Description: target we are proxy for
+    Value: !Ref ProxyPassEndpoint
   configVersion:
     Description: "ConfigVersion -- useful for rolling an update"
     Value: !Ref ConfigVersion
