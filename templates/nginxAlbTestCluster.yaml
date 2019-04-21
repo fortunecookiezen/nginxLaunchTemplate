@@ -1,5 +1,8 @@
 ---
-Description: "Nginx, Application LoadBalancer,Target Group, ASG and Launch Template. Used for backend purposes"
+Description: "Nginx, Application LoadBalancer,Target Group, ASG and Launch Template. Used for testing
+              tenant-vpc architects and inteneded to be deployed as an internal load-balanced test 
+              application. Deploy this as the proxy target to the nginxAlbv2ReverseProxyCluster or 
+              nginxNLBv2Cluster stacks"
 AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
   App:
@@ -138,8 +141,59 @@ Resources:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
         config_nginx:
-          sources: 
-            /etc/nginx: !Sub "https://s3.amazonaws.com/${DeploymentBucketName}/${ASI}/${Environment}/nginx-webhost.tar.gz"
+          files:
+            /etc/nginx/nginx.conf:
+              content: !Sub |
+                user nginx;
+                worker_processes auto;
+                error_log /var/log/nginx/error.log;
+                events {
+                  worker_connections 1024;
+                }
+                http {
+                  log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                                    '$status $body_bytes_sent "$http_referer" '
+                                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+                  access_log /var/log/nginx/access.log  main;
+                  sendfile on;
+                  tcp_nopush          on;
+                  tcp_nodelay         on;
+                  keepalive_timeout   65;
+                  types_hash_max_size 2048;
+ 
+                  include             /etc/nginx/mime.types;
+                  default_type        application/octet-stream;
+
+                  server {
+                    listen       443 ssl http2 default_server;
+                    server_name  ${App}.${Environment}.${ASI}.aws.service;
+                    root         /usr/share/nginx/html;
+                    ssl_certificate /etc/ssl/certs/nginx-selfsigned.crt;
+                    ssl_certificate_key /etc/ssl/private/nginx-selfsigned.key;
+                    ssl_session_cache shared:SSL:1m;
+                    ssl_session_timeout  10m;
+                    ssl_ciphers HIGH:!aNULL:!MD5;
+                    ssl_prefer_server_ciphers on;
+
+                    include /etc/nginx/default.d/*.conf;
+
+                    location / {
+                    }
+
+                    location ^~ /internal/ {
+                      return 404;
+                    }
+                      
+                    error_page 404 /404.html;
+                      location = /404.html {
+                    }
+
+                    error_page 500 502 503 504 /50x.html;
+                      location = /50x.html {
+                    }
+                  }
+                }
           services: 
             sysvinit: 
               nginx: 
@@ -170,11 +224,9 @@ Resources:
             !Sub |
               #!/usr/bin/env bash
               # configVersion ${ConfigVersion}
-              yum update -y aws-cfn-bootstrap # good practice - always do this.
+              yum update -y # good practice - always do this.
               /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
-              yum -y update
               amazon-linux-extras install nginx1.12 -y
-              # openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 #takes too long
               mkdir -m 700 /etc/ssl/private
               openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
               -keyout /etc/ssl/private/nginx-selfsigned.key \
@@ -215,7 +267,7 @@ Resources:
       Tags:
         -
           Key: "Name"
-          Value: !Sub "${App}-asg-sg"
+          Value: !Sub "${App}-${Environment}-${ASI}-asg-sg"
         -
           Key: "Project"
           Value: !Ref ASI
@@ -255,7 +307,7 @@ Resources:
       Tags:
       - 
         Key: "Name"
-        Value: !Sub "${App}-alb-asg"
+        Value: !Sub "${App}-${Environment}-${ASI}-alb-asg"
         PropagateAtLaunch: true      
       -
         Key: "Project"
@@ -284,7 +336,7 @@ Resources:
       Tags:
       - 
         Key: "Name"
-        Value: !Sub "${App}-nginx-tg"
+        Value: !Sub "${App}-${Environment}-${ASI}-nginx-tg"
       -
         Key: "Project"
         Value: !Ref ASI
@@ -303,7 +355,7 @@ Resources:
       Tags:
         - 
           Key: "Name"
-          Value: !Sub "${App}-https-alb"
+          Value: !Sub "${App}-${Environment}-${ASI}-https-alb"
         -
           Key: "Project"
           Value: !Ref ASI
@@ -422,3 +474,10 @@ Resources:
       Roles:
       - !Ref NgxLtRole
       InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
+Outputs:
+  proxyPassEndpoint:
+    Description: 'Internal Url'
+    Value: !Join ["", ["https://", !GetAtt ElasticLoadBalancer.DNSName]]
+  configVersion:
+    Description: "ConfigVersion -- useful for rolling an update"
+    Value: !Ref ConfigVersion
