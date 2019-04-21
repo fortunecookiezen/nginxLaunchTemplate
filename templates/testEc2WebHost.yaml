@@ -28,7 +28,7 @@ Parameters:
     AllowedPattern: "^[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
   ConfigVersion:
     Type: String
-    Description: "major.minor version of the config to use, eg: 1.0. Use of this flag forces instance replacement"
+    Description: "major.minor version of the config to use, eg: 1.0. Use of this flag forces instance restart"
     MinLength: 3
     MaxLength: 5
     AllowedPattern: '(\d{1,2})\.(\d{1,2})'
