@@ -1,6 +1,6 @@
 ---
 Description: "Nginx, Application LoadBalancer,Target Group, ASG and Launch Template. Used for testing
-              tenant-vpc architects and inteneded to be deployed as an internal load-balanced test 
+              tenant-vpc architectures and intended to be deployed as an internal load-balanced test 
               application. Deploy this as the proxy target to the nginxAlbv2ReverseProxyCluster or 
               nginxNLBv2Cluster stacks"
 AWSTemplateFormatVersion: "2010-09-09"
@@ -142,6 +142,21 @@ Resources:
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
         config_nginx:
           files:
+            /var/www/html/index.html:
+              content: !Sub |
+                'Content-Type: text/html; charset=utf-8'
+                <html>
+                  <body>
+                    Hello from ${App}.${Environment}.${ASI}.aws.service
+                  </body>
+                </html>
+              mode: "000644"
+              owner: root
+              group: root
+            /var/www/html/status.json:
+              content: |
+                'Content-type: application/json; charset=utf-8'
+                {"message": "healthy"}
             /etc/nginx/nginx.conf:
               content: !Sub |
                 user nginx;
@@ -179,6 +194,7 @@ Resources:
                     include /etc/nginx/default.d/*.conf;
 
                     location / {
+                      root /var/www/html;
                     }
 
                     location ^~ /internal/ {
@@ -481,3 +497,4 @@ Outputs:
   configVersion:
     Description: "ConfigVersion -- useful for rolling an update"
     Value: !Ref ConfigVersion
+# ToDo: may need to validate message content headers
