@@ -1,5 +1,5 @@
 ---
-Description: "Nginx, Application LoadBalancer,Target Group, ASG and Launch Template. Used for backend purposes"
+Description: "Nginx proxy Application LoadBalancer,Target Group, ASG and Launch Template"
 AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
   App:
@@ -37,6 +37,7 @@ Parameters:
   LogBucket:
     Type: String
     Description: "s3 elb logbucket name"
+    Default: "fcz-dev-us-east-1-elblogs"
   certificatearn:
     Type: String
     Description: "arn for the load balancer tls listener certificate"
@@ -358,6 +359,10 @@ Resources:
         Key: "Owner"
         Value: !Ref Owner
         PropagateAtLaunch: true      
+      -
+        Key: "ConfigVersion"
+        Value: !Ref ConfigVersion
+        PropagateAtLaunch: true    
 
   TargetGroup80:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -567,5 +572,3 @@ Outputs:
     Value: !Ref ConfigVersion
 
 # ToDo:
-# done! Create S3 bucket for logs, IAM Role and Policy that allows Elasticloadbalancer to write to log bucket
-# done! add ec2 log to cloudwatch configuration
