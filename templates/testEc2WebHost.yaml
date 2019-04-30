@@ -158,16 +158,12 @@ Resources:
             #!/bin/bash
             # configVersion ${ConfigVersion}
             yum update -y aws-cfn-bootstrap # good practice - always do this.
-            #/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2 --configsets nginx --region ${AWS::Region}
-            yum -y update
-            #amazon-linux-extras install nginx1.12 -y
+            yum update -y #update them all until this breaks something, kept redunandant so it can be commented out
             mkdir -m 700 /etc/ssl/private
             openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
             -keyout /etc/ssl/private/nginx-selfsigned.key \
             -out /etc/ssl/certs/nginx-selfsigned.crt \
             -subj '/C=US/ST=Nebraska/L=Omaha/O=${ASI}/OU=${Environment}/CN=www.${Environment}.${ASI}.aws.service/emailAddress=${Owner}'
-            #/bin/systemctl enable nginx.service #manually enable this thing
-            #/bin/systemctl restart nginx.service #manually kick this thing
             /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2 --configsets nginx --region ${AWS::Region}
             /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource EC2 --region ${AWS::Region}
     CreationPolicy:
@@ -269,6 +265,7 @@ Resources:
                     }
                   }
                 }
+# this is broken with a chkconfig error, commented out until it's fixed.
 #          services: 
 #            sysvinit: 
 #              nginx: 
@@ -280,6 +277,8 @@ Resources:
           commands:
             01_install_awslogs:
               command: yum install -y awslogs
+            02_configure_awslogs:
+              command: cp /tmp/awslogs/awscli.conf /etc/awslogs/awscli.conf
           files:
             /etc/awslogs/awslogs.conf:
               content: !Sub |
@@ -290,10 +289,17 @@ Resources:
                 [nginx]
                 file = /var/log/nginx/access.log
                 log_group_name = ${ASI}-${Environment}-${App}-proxy-log-group
-                log_stream_name = ${ASI}-${Environment}-${App}-{instance_id}-access-logs
+                #log_stream_name = ${ASI}-${Environment}-${App}-{instance_id}-access-logs
+                log_stream_name = ${ASI}-${Environment}-${App}-access-logs
                 datetime_format = %b %d %H:%M:%S
                 buffer_duration = 5000
                 initial_position = start_of_file
+            /tmp/awslogs/awscli.conf:
+              content: !Sub |
+                [plugins]
+                cwlogs = cwlogs
+                [default]
+                region = ${AWS::Region}
           services:
             sysvinit:
               awslogsd:
@@ -301,6 +307,7 @@ Resources:
                 ensureRunning: "true"
                 files:
                   - "/etc/awslogs/awslogs.conf"
+                  - "/etc/awslogs/awscli.conf"
 
   NgxLtRole:
     Type: AWS::IAM::Role
