@@ -158,16 +158,17 @@ Resources:
             #!/bin/bash
             # configVersion ${ConfigVersion}
             yum update -y aws-cfn-bootstrap # good practice - always do this.
-            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2 --configsets nginx --region ${AWS::Region}
+            #/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2 --configsets nginx --region ${AWS::Region}
             yum -y update
-            amazon-linux-extras install nginx1.12 -y
+            #amazon-linux-extras install nginx1.12 -y
             mkdir -m 700 /etc/ssl/private
             openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
             -keyout /etc/ssl/private/nginx-selfsigned.key \
             -out /etc/ssl/certs/nginx-selfsigned.crt \
             -subj '/C=US/ST=Nebraska/L=Omaha/O=${ASI}/OU=${Environment}/CN=www.${Environment}.${ASI}.aws.service/emailAddress=${Owner}'
-            /bin/systemctl enable nginx.service #manually enable this thing
-            /bin/systemctl restart nginx.service #manually kick this thing
+            #/bin/systemctl enable nginx.service #manually enable this thing
+            #/bin/systemctl restart nginx.service #manually kick this thing
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2 --configsets nginx --region ${AWS::Region}
             /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource EC2 --region ${AWS::Region}
     CreationPolicy:
       ResourceSignal:
@@ -180,27 +181,6 @@ Resources:
             - "configure_cfn"
             - "config_nginx"
             - "install_awslogs"
-            - "configure_cloudwatch"
-        install_awslogs:
-          commands:
-            01_install_awslogs:
-              command: yum install -y awslogs
-          files:
-            /tmp/cloudwatch_agent_conf:
-              content: !Sub |
-                [general]
-                state_file = /var/awslogs/state/agent-state
-
-                [/var/log/syslog]
-                file = /var/log/nginx/access.log
-                log_group_name = ${ASI}-${Environment}-${App}-log_group
-                log_stream_name = ${ASI}-${Environment}-${App}-access_logs
-                datetime_format = %b %d %H:%M:%S
-        configure_cloudwatch:
-          commands:
-            01_configure_cloudwatch:
-              command: !Sub |
-                awslogs-agent-setup.py -n -r ${AWS::Region} -c /tmp/cloudwatch_agent_conf
         configure_cfn:  
           files:
             /etc/cfn/hooks.d/cfn-auto-reloader.conf:
@@ -231,6 +211,13 @@ Resources:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
         config_nginx:
+          commands:
+            01_install_nginx:
+              command: amazon-linux-extras install nginx1.12 -y
+            02_enable_nginx:
+              command: /bin/systemctl enable nginx.service
+            03_start_nginx:
+              command: /bin/systemctl restart nginx.service
           files:
             /var/www/html/index.html:
               content: !Sub |
@@ -280,20 +267,41 @@ Resources:
                     location / {
                       root /var/www/html;
                     }
-
-                    location /health {
-                      default_type  application/json;
-                      return 200 '{"message": "healthy"}';
-                    }
                   }
                 }
-          services: 
-            sysvinit: 
-              nginx: 
+#          services: 
+#            sysvinit: 
+#              nginx: 
+#                enabled: true
+#                ensureRunning: true
+#                files: 
+#                  - /etc/nginx/nginx.conf
+        install_awslogs:
+          commands:
+            01_install_awslogs:
+              command: yum install -y awslogs
+          files:
+            /etc/awslogs/awslogs.conf:
+              content: !Sub |
+                [general]
+                state_file = /var/lib/awslogs/agent-state
+                use_gzip_http_content_encoding = true
+
+                [nginx]
+                file = /var/log/nginx/access.log
+                log_group_name = ${ASI}-${Environment}-${App}-proxy-log-group
+                log_stream_name = ${ASI}-${Environment}-${App}-{instance_id}-access-logs
+                datetime_format = %b %d %H:%M:%S
+                buffer_duration = 5000
+                initial_position = start_of_file
+          services:
+            sysvinit:
+              awslogsd:
                 enabled: "true"
                 ensureRunning: "true"
-                files: 
-                  - "/etc/nginx/nginx.conf"
+                files:
+                  - "/etc/awslogs/awslogs.conf"
+
   NgxLtRole:
     Type: AWS::IAM::Role
     Properties:
