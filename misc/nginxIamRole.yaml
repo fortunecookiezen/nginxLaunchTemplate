@@ -94,4 +94,4 @@ Resources:
       Path: "/"
       Roles:
       - !Ref NgxLtRole
-      InstanceProfileName: "NginxLTProfile"
+      InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
