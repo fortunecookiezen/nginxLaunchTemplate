@@ -222,6 +222,9 @@ Resources:
                     Hello from ${App}.${Environment}.${ASI}.aws.service
                   </body>
                 </html>
+              mode: 000644
+              owner: root
+              group: root
             /var/www/html/status.json:
               content: |
                 {"message": "healthy"}
@@ -265,7 +268,12 @@ Resources:
                     }
                   }
                 }
-# this is broken with a chkconfig error, commented out until it's fixed.
+              mode: 000644
+              owner: root
+              group: root
+# this is broken with a chkconfig error, 
+# commented out until it's fixed, 
+# or one of us includes a proper init script
 #          services: 
 #            sysvinit: 
 #              nginx: 
@@ -289,7 +297,6 @@ Resources:
                 [nginx]
                 file = /var/log/nginx/access.log
                 log_group_name = ${ASI}-${Environment}-${App}-proxy-log-group
-                #log_stream_name = ${ASI}-${Environment}-${App}-{instance_id}-access-logs
                 log_stream_name = ${ASI}-${Environment}-${App}-access-logs
                 datetime_format = %b %d %H:%M:%S
                 buffer_duration = 5000
