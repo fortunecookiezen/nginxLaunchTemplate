@@ -118,6 +118,7 @@ Resources:
           nginx:
             - "configure_cfn"
             - "config_nginx"
+            - "install_awslogs"
             - "verify_instance_health"
         configure_cfn:
           files:
@@ -149,6 +150,13 @@ Resources:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
         config_nginx:
+          commands:
+            01_install_nginx:
+              command: amazon-linux-extras install nginx1.12 -y
+            02_enable_nginx:
+              command: /bin/systemctl enable nginx.service
+            03_start_nginx:
+              command: /bin/systemctl restart nginx.service
           files:
             /etc/nginx/nginx.conf:
               content: !Sub |
@@ -197,13 +205,44 @@ Resources:
                       }
                   }                  
                 }
-          services: 
-            sysvinit: 
-              nginx: 
-                enabled: true
-                ensureRunning: true
-                files: 
-                  - "/etc/nginx/nginx.conf"
+              mode: 000644
+              owner: root
+              group: root
+              # cfn-init supports sysvinit, not systemd, so no services here. See above.
+        install_awslogs:
+          commands:
+            01_install_awslogs:
+              command: yum install -y awslogs
+            02_configure_awslogs:
+              command: cp /tmp/awslogs/awscli.conf /etc/awslogs/awscli.conf
+          files:
+            /etc/awslogs/awslogs.conf:
+              content: !Sub |
+                [general]
+                state_file = /var/lib/awslogs/agent-state
+                use_gzip_http_content_encoding = true
+
+                [nginx]
+                file = /var/log/nginx/access.log
+                log_group_name = ${ASI}-${Environment}-${App}-proxy-log-group
+                log_stream_name = ${ASI}-${Environment}-${App}-access-logs
+                datetime_format = %b %d %H:%M:%S
+                buffer_duration = 5000
+                initial_position = start_of_file
+            /tmp/awslogs/awscli.conf:
+              content: !Sub |
+                [plugins]
+                cwlogs = cwlogs
+                [default]
+                region = ${AWS::Region}
+          services:
+            sysvinit:
+              awslogsd:
+                enabled: "true"
+                ensureRunning: "true"
+                files:
+                  - "/etc/awslogs/awslogs.conf"
+                  - "/etc/awslogs/awscli.conf"
         verify_instance_health:
           commands:
             ELBHealthCheck:
@@ -212,6 +251,7 @@ Resources:
                  --load-balancer-name ${ElasticLoadBalancer}
                  --instances $(curl -s http://169.254.169.254/latest/meta-data/instance-id)
                  --query InstanceStates[0].State); sleep 10; done'
+
     Properties:
       LaunchTemplateName: !Join ["-", [!Ref "AWS::StackName", "nginx", !Ref App]]
       LaunchTemplateData:
@@ -229,10 +269,6 @@ Resources:
               # configVersion ${ConfigVersion}
               yum update -y # always do this yum update -y aws-cfn-bootstrap
               /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
-              yum install -y awslogs
-              amazon-linux-extras install nginx1.12 -y
-              /bin/systemctl enable nginx.service #manually enable this thing
-              /bin/systemctl restart nginx.service #manually kick this thing
               /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
 
 # Begin other resource definitions
