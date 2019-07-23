@@ -248,12 +248,12 @@ Resources:
                   - "/etc/awslogs/awscli.conf"
         verify_instance_health:
           commands:
-            ELBHealthCheck:
+            ELBV2HealthCheck:
               command: !Sub
-                'until [ "$state" == "\"InService\"" ]; do state=$(aws --region ${AWS::Region} elb describe-instance-health
-                 --load-balancer-name ${ElasticLoadBalancer}
-                 --instances $(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-                 --query InstanceStates[0].State); sleep 10; done'
+                'until [ "$state" == "\"healthy\"" ]; do state=$(aws --region ${AWS::Region} elbv2 describe-target-health
+                --target-group-arn ${TargetGroup80}
+                --targets Id=$(curl -s http://169.254.169.254/latest/meta-data/instance-id),Port=80
+                --query TargetHealthDescriptions[0].TargetHealth.State); sleep 10; done'
 
     Properties:
       LaunchTemplateName: !Join ["-", [!Ref "AWS::StackName", "nginx", !Ref App]]
@@ -565,6 +565,10 @@ Resources:
         - Effect: Allow
           Action:
           - ec2:DescribeInstanceStatus
+          Resource: "*"
+        - Effect: Allow
+          Action:
+          - elasticloadbalancing:DescribeTargetHealth
           Resource: "*"
         - Effect: Allow
           Action:
