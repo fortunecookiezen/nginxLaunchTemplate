@@ -265,6 +265,43 @@ Resources:
         KeyName: !Ref keyname
         SecurityGroupIds:
           - !Ref AutoScaleGroupSg
+        TagSpecifications:
+          -
+            ResourceType: instance
+            Tags:
+              -
+                Key: "Name"
+                Value: !Sub "${App}-${Environment}-${ASI}-instance"
+              -
+                Key: "Project"
+                Value: !Ref ASI
+              -
+                Key: "Environment"
+                Value: !Ref Environment
+              - 
+                Key: "Owner"
+                Value: !Ref Owner
+              -
+                Key: "Environment"
+                Value: !Ref Environment
+          -
+            ResourceType: volume
+            Tags:
+              -
+                Key: "Name"
+                Value: !Sub "${App}-${Environment}-${ASI}-volume"
+              -
+                Key: "Project"
+                Value: !Ref ASI
+              -
+                Key: "Environment"
+                Value: !Ref Environment
+              - 
+                Key: "Owner"
+                Value: !Ref Owner
+              -
+                Key: "Environment"
+                Value: !Ref Environment
         UserData:
           "Fn::Base64":
             !Sub |

@@ -2,6 +2,35 @@
 Description: "Nginx proxy Launch Template"
 AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
+  App:
+    Type: String
+    AllowedValues:
+      - api
+      - www
+    Description: "Select endpoint proxy (api|www)"
+  ASI:
+    Type: String
+    MinLength: 2
+    MaxLength: 5
+    Description: "asi - must be lower-case, limit 4 characters"
+    AllowedPattern: "[a-z]*"
+  Environment:
+    Type: String
+    MinLength: 3
+    MaxLength: 7
+    Description: "environment (nonprod|dev|itg|cat|prod) - must be lower-case, limit 7 characters"
+    AllowedPattern: "[a-z]*"
+  Owner:
+    Type: String
+    Description: "email address of the the Owner of this stack"
+    Default: "admin@root.com"
+    AllowedPattern: "^[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
+  ConfigVersion:
+    Type: String
+    Description: "major.minor version of the config to use, eg: 1.0"
+    MinLength: 3
+    MaxLength: 5
+    AllowedPattern: '(\d{1,2})\.(\d{1,2})'
   keyname:
     Type: AWS::EC2::KeyPair::KeyName
   securitygroup:
@@ -11,6 +40,25 @@ Parameters:
     Type: String
     Description: "url (including branch) or github repo to pull nginx config from. It should look something 
     like: https://github.com/fortunecookiezen/ec2nginx/tarball/master"
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - 
+      Label:
+        default: "Environment Configuration"
+      Parameters:
+        - App
+        - ASI
+        - Environment
+        - Owner
+        - ConfigVersion
+    -
+      Label:
+        default: "Launch Template Configuration"
+      Parameters:
+        - nginxConfigRepoURL
+        - keyname
+        - securitygroup
 
 Mappings:
   RegionMap:
@@ -31,10 +79,48 @@ Resources:
         KeyName: !Ref keyname
         SecurityGroupIds:
           - !Ref securitygroup
+        TagSpecifications:
+          -
+            ResourceType: instance
+            Tags:
+              -
+                Key: "Name"
+                Value: !Sub "${App}-${Environment}-${ASI}-instance"
+              -
+                Key: "Project"
+                Value: !Ref ASI
+              -
+                Key: "Environment"
+                Value: !Ref Environment
+              - 
+                Key: "Owner"
+                Value: !Ref Owner
+              -
+                Key: "Environment"
+                Value: !Ref Environment
+          -
+            ResourceType: volume
+            Tags:
+              -
+                Key: "Name"
+                Value: !Sub "${App}-${Environment}-${ASI}-volume"
+              -
+                Key: "Project"
+                Value: !Ref ASI
+              -
+                Key: "Environment"
+                Value: !Ref Environment
+              - 
+                Key: "Owner"
+                Value: !Ref Owner
+              -
+                Key: "Environment"
+                Value: !Ref Environment
         UserData:
           "Fn::Base64":
             !Sub |
               #!/usr/bin/env bash
+              # configVersion ${ConfigVersion}
               yum update -y aws-cfn-bootstrap # good practice - always do this.
               /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
               yum -y update
@@ -44,6 +130,7 @@ Resources:
         configSets:
           nginx:
             - "configure_cfn"
+            - "install_awslogs"
             - "config_nginx"
         configure_cfn:
           files:
@@ -74,6 +161,40 @@ Resources:
                 files:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
+        install_awslogs:
+          commands:
+            01_install_awslogs:
+              command: yum install -y awslogs
+            02_configure_awslogs:
+              command: cp /tmp/awslogs/awscli.conf /etc/awslogs/awscli.conf
+          files:
+            /etc/awslogs/awslogs.conf:
+              content: !Sub |
+                [general]
+                state_file = /var/lib/awslogs/agent-state
+                use_gzip_http_content_encoding = true
+
+                [nginx]
+                file = /var/log/nginx/access.log
+                log_group_name = ${ASI}-${Environment}-${App}-nginx-log-group
+                log_stream_name = ${ASI}-${Environment}-${App}-access-logs
+                datetime_format = %b %d %H:%M:%S
+                buffer_duration = 5000
+                initial_position = start_of_file
+            /tmp/awslogs/awscli.conf:
+              content: !Sub |
+                [plugins]
+                cwlogs = cwlogs
+                [default]
+                region = ${AWS::Region}
+          services:
+            sysvinit:
+              awslogsd:
+                enabled: "true"
+                ensureRunning: "true"
+                files:
+                  - "/etc/awslogs/awslogs.conf"
+                  - "/etc/awslogs/awscli.conf"
         config_nginx:
           commands:
             01_install_nginx:
