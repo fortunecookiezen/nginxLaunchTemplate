@@ -639,7 +639,7 @@ Resources:
       Path: "/"
       Roles:
       - !Ref NgxLtRole
-      InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
+      InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", !Ref "AWS::Region", "Ec2Profile"]]
 Outputs:
   albPublicDnsName:
     Description: public url for network load balancer
