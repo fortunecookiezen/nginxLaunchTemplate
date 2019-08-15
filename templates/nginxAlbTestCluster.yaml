@@ -294,6 +294,7 @@ Resources:
           Value: !Ref Owner
 
   AutoScalingGroup:
+    DependsOn: RootInstanceProfile
     Type: "AWS::AutoScaling::AutoScalingGroup"
     CreationPolicy:
       ResourceSignal:

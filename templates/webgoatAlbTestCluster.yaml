@@ -435,6 +435,10 @@ Resources:
           Resource: "*"
         - Effect: Allow
           Action:
+          - elasticloadbalancing:DescribeTargetHealth
+          Resource: "*"
+        - Effect: Allow
+          Action:
           - logs:CreateLogGroup
           - logs:CreateLogStream
           - logs:DescribeLogGroups
