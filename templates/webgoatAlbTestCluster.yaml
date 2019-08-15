@@ -105,10 +105,8 @@ Resources:
     Metadata:
       AWS::CloudFormation::Init:
         configSets:
-          nginx:
+          webgoat:
             - "configure_cfn"
-            - "install_awslogs"
-            - "verify_instance_health"
         configure_cfn:
           files:
             /etc/cfn/hooks.d/cfn-auto-reloader.conf:
@@ -116,7 +114,7 @@ Resources:
                 [cfn-auto-reloader-hook]
                 triggers=post.update
                 path=Resources.LaunchTemplate.Metadata.AWS::CloudFormation::Init
-                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets webgoat --region ${AWS::Region}
               mode: "000400"
               owner: root
               group: root
@@ -139,51 +137,8 @@ Resources:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
 
-        install_awslogs:
-          commands:
-            01_install_awslogs:
-              command: yum install -y awslogs
-            02_configure_awslogs:
-              command: cp /tmp/awslogs/awscli.conf /etc/awslogs/awscli.conf
-          files:
-            /etc/awslogs/awslogs.conf:
-              content: !Sub |
-                [general]
-                state_file = /var/lib/awslogs/agent-state
-                use_gzip_http_content_encoding = true
-
-                [nginx]
-                file = /var/log/nginx/access.log
-                log_group_name = ${ASI}-${Environment}-${App}-proxy-log-group
-                log_stream_name = ${ASI}-${Environment}-${App}-access-logs
-                datetime_format = %b %d %H:%M:%S
-                buffer_duration = 5000
-                initial_position = start_of_file
-            /tmp/awslogs/awscli.conf:
-              content: !Sub |
-                [plugins]
-                cwlogs = cwlogs
-                [default]
-                region = ${AWS::Region}
-          services:
-            sysvinit:
-              awslogsd:
-                enabled: "true"
-                ensureRunning: "true"
-                files:
-                  - "/etc/awslogs/awslogs.conf"
-                  - "/etc/awslogs/awscli.conf"
-        verify_instance_health:
-          commands:
-            ELBHealthCheck:
-              command: !Sub
-                'until [ "$state" == "\"InService\"" ]; do state=$(aws --region ${AWS::Region} elb describe-instance-health
-                 --load-balancer-name ${ElasticLoadBalancer}
-                 --instances $(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-                 --query InstanceStates[0].State); sleep 10; done'
-
     Properties:
-      LaunchTemplateName: !Join ["-", [!Ref "AWS::StackName", "nginx", !Ref App]]
+      LaunchTemplateName: !Join ["-", [!Ref "AWS::StackName", "webgoat", !Ref App]]
       LaunchTemplateData:
         IamInstanceProfile: 
             Name: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
@@ -201,11 +156,10 @@ Resources:
               sysctl -w net.ipv6.conf.all.disable_ipv6=1 #jesus ffs
               sysctl -w net.ipv6.conf.default.disable_ipv6=1 #seriously
               sudo yum install java-11 -y
-              wget https://github.com/WebGoat/WebGoat/releases/download/v8.0.0.M25/webgoat-server-8.0.0.M25.jar
-              /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
+              wget -q https://github.com/WebGoat/WebGoat/releases/download/v8.0.0.M25/webgoat-server-8.0.0.M25.jar
+              java -Dserver.address=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4) -jar webgoat-server-8.0.0.M25.jar >> /var/log/webgoat 2>&1 &
+              /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets webgoat --region ${AWS::Region}
               /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
-              java -jar webgoat-server-8.0.0.M25.jar [--server.port=8080] [--server.address=localhost]
-
 
 # Begin other resource definitions
   LoadBalancerSg:
@@ -257,13 +211,8 @@ Resources:
         -
           SourceSecurityGroupId: !Ref LoadBalancerSg
           IpProtocol: "TCP"
-          ToPort: 80
-          FromPort: 80
-        -
-          SourceSecurityGroupId: !Ref LoadBalancerSg #health checks
-          IpProtocol: "TCP"
-          ToPort: 81
-          FromPort: 81
+          ToPort: 8080
+          FromPort: 8080
         -
           SourceSecurityGroupId: !Ref LoadBalancerSg
           IpProtocol: "TCP"
@@ -301,10 +250,10 @@ Resources:
         PauseTime: PT15M
         WaitOnResourceSignals: true
     Properties:
-      MinSize: "2"
+      MinSize: "1"
       MaxSize: "5"
       Cooldown: "120"
-      DesiredCapacity: "2"
+      DesiredCapacity: "1"
       LaunchTemplate:
         LaunchTemplateId:
           Ref: "LaunchTemplate"
@@ -344,14 +293,14 @@ Resources:
       VpcId: !Ref vpcid
       HealthCheckProtocol: "HTTP"
       HealthCheckPort: "8080"
-      HealthCheckPath: "/"
+      HealthCheckPath: "/WebGoat/login"
       HealthCheckIntervalSeconds: 30
       HealthyThresholdCount: 3
       UnhealthyThresholdCount: 3
       Tags:
       - 
         Key: "Name"
-        Value: !Sub "${App}-${Environment}-${ASI}-nginx-tg"
+        Value: !Sub "${App}-${Environment}-${ASI}-webgoat-tg"
       -
         Key: "Project"
         Value: !Ref ASI
@@ -439,7 +388,7 @@ Resources:
   RolePolicies:
     Type: AWS::IAM::Policy
     Properties:
-      PolicyName: nginxEC2
+      PolicyName: webgoatEC2
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -486,8 +435,7 @@ Resources:
           Resource: "*"
         - Effect: Allow
           Action:
-          - ds:CreateComputer
-          - ds:DescribeDirectories
+          - elasticloadbalancing:DescribeTargetHealth
           Resource: "*"
         - Effect: Allow
           Action:
@@ -497,17 +445,6 @@ Resources:
           - logs:DescribeLogStreams
           - logs:PutLogEvents         
           Resource: 'arn:aws:logs:*:*:*'
-        - Effect: Allow
-          Action: 
-          - s3:GetBucketLocation
-          - s3:PutObject
-          - s3:GetObject
-          - s3:GetEncryptionConfiguration
-          - s3:AbortMultipartUpload
-          - s3:ListMultipartUploadParts
-          - s3:ListBucket
-          - s3:ListBucketMultipartUploads
-          Resource: "*"
       Roles:
       - !Ref NgxLtRole
   RootInstanceProfile:
