@@ -409,7 +409,7 @@ Resources:
       Path: "/"
       Roles:
       - !Ref NgxLtRole
-      InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
+      InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", !Ref "AWS::Region", "Ec2Profile"]]
 
 Outputs:
   httpEndpoint:
