@@ -141,6 +141,13 @@ Resources:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
         config_nginx:
+          commands:
+            01_install_nginx:
+              command: amazon-linux-extras install nginx1.12 -y
+            02_enable_nginx:
+              command: /bin/systemctl enable nginx.service
+            03_start_nginx:
+              command: /bin/systemctl restart nginx.service
           files:
             /var/www/html/index.html:
               content: !Sub |
@@ -207,21 +214,19 @@ Resources:
                     }
                   }
                 }
-          services: 
-            sysvinit: 
-              nginx: 
-                enabled: true
-                ensureRunning: true
-                files: 
-                  - "/etc/nginx/nginx.conf"
+              mode: 000644
+              owner: root
+              group: root
+              # cfn-init supports sysvinit, not systemd, so no services here. See above.
         verify_instance_health:
           commands:
-            ELBHealthCheck:
+            ELBV2HealthCheck:
               command: !Sub
-                'until [ "$state" == "\"InService\"" ]; do state=$(aws --region ${AWS::Region} elb describe-instance-health
-                 --load-balancer-name ${ElasticLoadBalancer}
-                 --instances $(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-                 --query InstanceStates[0].State); sleep 10; done'
+                'until [ "$state" == "\"healthy\"" ]; do state=$(aws --region ${AWS::Region} elbv2 describe-target-health
+                --target-group-arn ${TargetGroup443}
+                --targets Id=$(curl -ks http://169.254.169.254/latest/meta-data/instance-id),Port=443
+                --query TargetHealthDescriptions[0].TargetHealth.State); sleep 10; done'
+
     Properties:
       LaunchTemplateName: !Join ["-", [!Ref "AWS::StackName", "nginx", !Ref App]]
       LaunchTemplateData:
@@ -239,14 +244,11 @@ Resources:
               # configVersion ${ConfigVersion}
               yum update -y # good practice - always do this.
               /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
-              amazon-linux-extras install nginx1.12 -y
               mkdir -m 700 /etc/ssl/private
               openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
               -keyout /etc/ssl/private/nginx-selfsigned.key \
               -out /etc/ssl/certs/nginx-selfsigned.crt \
               -subj '/C=US/ST=Nebraska/L=Omaha/O=${ASI}/OU=${Environment}/CN=${App}.${Environment}.${ASI}.aws.service/emailAddress=${Owner}'
-              /bin/systemctl enable nginx.service #manually enable this thing
-              /bin/systemctl restart nginx.service #manually kick this thing
               /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
 
 # Begin other resource definitions
@@ -456,8 +458,7 @@ Resources:
           Resource: "*"
         - Effect: Allow
           Action:
-          - ds:CreateComputer
-          - ds:DescribeDirectories
+          - elasticloadbalancing:DescribeTargetHealth
           Resource: "*"
         - Effect: Allow
           Action:
@@ -470,14 +471,15 @@ Resources:
         - Effect: Allow
           Action: 
           - s3:GetBucketLocation
-          - s3:PutObject
           - s3:GetObject
           - s3:GetEncryptionConfiguration
           - s3:AbortMultipartUpload
           - s3:ListMultipartUploadParts
           - s3:ListBucket
           - s3:ListBucketMultipartUploads
-          Resource: "*"
+          Resource: 
+            - !Sub 'arn:aws:s3:::${DeploymentBucketName}'
+            - !Sub 'arn:aws:s3:::${DeploymentBucketName}/*'
       Roles:
       - !Ref NgxLtRole
   RootInstanceProfile:
@@ -486,7 +488,7 @@ Resources:
       Path: "/"
       Roles:
       - !Ref NgxLtRole
-      InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", "Ec2Profile"]]
+      InstanceProfileName: !Join ["-", [!Ref "AWS::StackName", !Ref "AWS::Region", "Ec2Profile"]]
 Outputs:
   proxyPassEndpoint:
     Description: 'Internal Url'
