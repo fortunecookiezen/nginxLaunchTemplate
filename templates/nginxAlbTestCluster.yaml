@@ -109,6 +109,7 @@ Resources:
         configSets:
           nginx:
             - "configure_cfn"
+            - "config_certificates"
             - "config_nginx"
             - "verify_instance_health"
         configure_cfn:
@@ -140,6 +141,16 @@ Resources:
                 files:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
+        config_certificates:
+          commands:
+            01_mkdir:
+              command: mkdir -m 700 /etc/ssl/private
+            02_mkcert:
+              command: !Sub |
+                openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                -keyout /etc/ssl/private/nginx-selfsigned.key \
+                -out /etc/ssl/certs/nginx-selfsigned.crt \
+                -subj '/C=US/ST=Nebraska/L=Omaha/O=${ASI}/OU=${Environment}/CN=${App}.${Environment}.${ASI}.aws.service/emailAddress=${Owner}'
         config_nginx:
           commands:
             01_install_nginx:
@@ -244,11 +255,6 @@ Resources:
               # configVersion ${ConfigVersion}
               yum update -y # good practice - always do this.
               /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --configsets nginx --region ${AWS::Region}
-              mkdir -m 700 /etc/ssl/private
-              openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-              -keyout /etc/ssl/private/nginx-selfsigned.key \
-              -out /etc/ssl/certs/nginx-selfsigned.crt \
-              -subj '/C=US/ST=Nebraska/L=Omaha/O=${ASI}/OU=${Environment}/CN=${App}.${Environment}.${ASI}.aws.service/emailAddress=${Owner}'
               /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
 
 # Begin other resource definitions
