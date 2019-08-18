@@ -111,6 +111,7 @@ Resources:
             - "configure_cfn"
             - "config_certificates"
             - "config_nginx"
+            - "install_awslogs"
             - "verify_instance_health"
         configure_cfn:
           files:
@@ -229,6 +230,40 @@ Resources:
               owner: root
               group: root
               # cfn-init supports sysvinit, not systemd, so no services here. See above.
+        install_awslogs:
+          commands:
+            01_install_awslogs:
+              command: yum install -y awslogs
+            02_configure_awslogs:
+              command: cp /tmp/awslogs/awscli.conf /etc/awslogs/awscli.conf
+          files:
+            /etc/awslogs/awslogs.conf:
+              content: !Sub |
+                [general]
+                state_file = /var/lib/awslogs/agent-state
+                use_gzip_http_content_encoding = true
+
+                [nginx]
+                file = /var/log/nginx/access.log
+                log_group_name = ${ASI}-${Environment}-${App}-proxy-log-group
+                log_stream_name = ${ASI}-${Environment}-${App}-access-logs
+                datetime_format = %b %d %H:%M:%S
+                buffer_duration = 5000
+                initial_position = start_of_file
+            /tmp/awslogs/awscli.conf:
+              content: !Sub |
+                [plugins]
+                cwlogs = cwlogs
+                [default]
+                region = ${AWS::Region}
+          services:
+            sysvinit:
+              awslogsd:
+                enabled: "true"
+                ensureRunning: "true"
+                files:
+                  - "/etc/awslogs/awslogs.conf"
+                  - "/etc/awslogs/awscli.conf"
         verify_instance_health:
           commands:
             ELBV2HealthCheck:
