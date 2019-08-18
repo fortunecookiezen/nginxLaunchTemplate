@@ -41,12 +41,9 @@ Parameters:
     Type: AWS::EC2::VPC::Id
   keyname:
     Type: AWS::EC2::KeyPair::KeyName
-  lbsubneta:
-    Type: AWS::EC2::Subnet::Id
-    Description: "public subnet for load balancer placment"
-  lbsubnetb:
-    Type: AWS::EC2::Subnet::Id
-    Description: "public subnet for load balancer placment"
+  lbsubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "public subnets for load balancer placment"
   subnetid:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "private subnets for autoscale group"
@@ -87,8 +84,7 @@ Metadata:
         default: "Network Configuration"
       Parameters:
         - vpcid
-        - lbsubneta
-        - lbsubnetb
+        - lbsubnets
         - subnetid
     -
       Label:
@@ -107,6 +103,7 @@ Resources:
         configSets:
           webgoat:
             - "configure_cfn"
+            - "verify_instance_health"
         configure_cfn:
           files:
             /etc/cfn/hooks.d/cfn-auto-reloader.conf:
@@ -136,7 +133,14 @@ Resources:
                 files:
                   - "/etc/cfn/cfn-hup.conf"
                   - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
-
+        verify_instance_health:
+          commands:
+            ELBV2HealthCheck:
+              command: !Sub
+                'until [ "$state" == "\"healthy\"" ]; do state=$(aws --region ${AWS::Region} elbv2 describe-target-health
+                --target-group-arn ${TargetGroup8080}
+                --targets Id=$(curl -s http://169.254.169.254/latest/meta-data/instance-id/),Port=8080
+                --query TargetHealthDescriptions[0].TargetHealth.State); sleep 10; done'
     Properties:
       LaunchTemplateName: !Join ["-", [!Ref "AWS::StackName", "webgoat", !Ref App]]
       LaunchTemplateData:
@@ -153,7 +157,7 @@ Resources:
               #!/usr/bin/env bash
               # configVersion ${ConfigVersion}
               yum update -y # always do this yum update -y aws-cfn-bootstrap
-              sysctl -w net.ipv6.conf.all.disable_ipv6=1 #jesus ffs
+              sysctl -w net.ipv6.conf.all.disable_ipv6=1 #jesus ffs I have to disable ipv6 to prevent webgoat from binding to it.
               sysctl -w net.ipv6.conf.default.disable_ipv6=1 #seriously
               sudo yum install java-11 -y
               wget -q https://github.com/WebGoat/WebGoat/releases/download/v8.0.0.M25/webgoat-server-8.0.0.M25.jar
@@ -213,11 +217,6 @@ Resources:
           IpProtocol: "TCP"
           ToPort: 8080
           FromPort: 8080
-        -
-          SourceSecurityGroupId: !Ref LoadBalancerSg
-          IpProtocol: "TCP"
-          ToPort: 443
-          FromPort: 443
       SecurityGroupEgress:
         -
           CidrIp: 0.0.0.0/0
@@ -238,6 +237,7 @@ Resources:
           Value: !Ref Owner
 
   AutoScalingGroup:
+    DependsOn: RootInstanceProfile
     Type: "AWS::AutoScaling::AutoScalingGroup"
     CreationPolicy:
       ResourceSignal:
@@ -315,9 +315,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
       Scheme: "internet-facing"
-      Subnets:
-        - !Ref lbsubneta
-        - !Ref lbsubnetb
+      Subnets: !Ref lbsubnets
       LoadBalancerAttributes:
       - Key: 'access_logs.s3.enabled'
         Value: 'true'
